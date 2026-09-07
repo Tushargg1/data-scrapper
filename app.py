@@ -255,40 +255,43 @@ with tab_scrape:
                     logs = []
                     done_jobs = 0
                     
-                    current_run_scraped = 0
-                    current_run_saved = 0
-                    current_run_phones = 0
-                    current_run_webs = 0
-                    current_pincode = ""
-                    current_niche = ""
+                    counters = {
+                        "scraped": 0,
+                        "saved": 0,
+                        "phones": 0,
+                        "webs": 0,
+                        "pincode": "",
+                        "niche": ""
+                    }
 
                     def on_item_scraped(item):
-                        nonlocal current_run_scraped, current_run_saved, current_run_phones, current_run_webs
-                        current_run_scraped += 1
+                        counters["scraped"] += 1
                         if item.get("Phone") not in ["N/A", ""]:
-                            current_run_phones += 1
+                            counters["phones"] += 1
                         if item.get("Website Available?") == "Yes":
-                            current_run_webs += 1
+                            counters["webs"] += 1
 
                         # Instantly commit to SQLite database!
-                        is_new = save_single_business(selected_state, current_pincode, current_niche, item, active["id"])
+                        is_new = save_single_business(
+                            selected_state, counters["pincode"], counters["niche"], item, active["id"]
+                        )
                         if is_new:
-                            current_run_saved += 1
+                            counters["saved"] += 1
 
                         # Update live metric counters instantly
-                        mc_total.metric("Businesses Found", current_run_scraped)
-                        mc_saved.metric("New Saved (Instant DB)", current_run_saved)
-                        mc_phone.metric("With Phone", current_run_phones)
-                        mc_web.metric("With Website", current_run_webs)
+                        mc_total.metric("Businesses Found", counters["scraped"])
+                        mc_saved.metric("New Saved (Instant DB)", counters["saved"])
+                        mc_phone.metric("With Phone", counters["phones"])
+                        mc_web.metric("With Website", counters["webs"])
 
                     for pincode in pincodes:
-                        current_pincode = pincode
+                        counters["pincode"] = pincode
                         if st.session_state.stop_scraping:
                             logs.append("⏹ **Scraping stopped by user.**")
                             break
 
                         for niche in active["niches"]:
-                            current_niche = niche
+                            counters["niche"] = niche
                             if st.session_state.stop_scraping:
                                 break
 
@@ -302,9 +305,9 @@ with tab_scrape:
                                 continue
 
                             try:
-                                initial_saved = current_run_saved
+                                initial_saved = counters["saved"]
                                 df = scrape_google_maps(niche, pincode, max_scrolls, on_item_scraped=on_item_scraped)
-                                new_in_pincode = current_run_saved - initial_saved
+                                new_in_pincode = counters["saved"] - initial_saved
                                 mark_as_scraped(selected_state, pincode, niche, len(df), active["id"])
                                 render_pincode_grid()
                                 logs.append(f"✅ `{pincode}` / `{niche}` — **{len(df)}** found, **{new_in_pincode} new** saved instantly.")
@@ -315,7 +318,7 @@ with tab_scrape:
                             log_ph.markdown("\n\n".join(logs[-20:]))
 
                     prog.progress(1.0)
-                    st.success(f"🎉 Scraping complete! **{current_run_saved} new businesses** permanently saved to **{active['name']}**.")
+                    st.success(f"🎉 Scraping complete! **{counters['saved']} new businesses** permanently saved to **{active['name']}**.")
                     st.rerun()
 
 
