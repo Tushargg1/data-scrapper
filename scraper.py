@@ -13,10 +13,11 @@ if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
-def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 3) -> pd.DataFrame:
+def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 3, on_item_scraped=None) -> pd.DataFrame:
     """
     Scrapes Google Maps for a given niche and pincode.
     Returns a Pandas DataFrame with detailed business info.
+    Executes on_item_scraped(item_dict) immediately for every business found.
     """
     query = f"{niche} in {pincode}"
     url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}"
@@ -133,7 +134,7 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 3) -> pd.Dat
                 except Exception:
                     pass
 
-                results.append({
+                item = {
                     "Name": name,
                     "Rating": rating,
                     "Reviews": reviews,
@@ -141,7 +142,14 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 3) -> pd.Dat
                     "Website Available?": website,
                     "Website Link": website_link,
                     "Google Maps URL": href
-                })
+                }
+                results.append(item)
+
+                if on_item_scraped:
+                    try:
+                        on_item_scraped(item)
+                    except Exception:
+                        pass
 
         except Exception as e:
             browser.close()

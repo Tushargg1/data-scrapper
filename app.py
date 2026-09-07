@@ -3,7 +3,7 @@ import pandas as pd
 
 from pincodes import get_states, get_pincodes_for_state
 from database import (
-    init_db, is_already_scraped, mark_as_scraped, save_businesses,
+    init_db, is_already_scraped, mark_as_scraped, save_businesses, save_single_business,
     get_all_businesses_df, get_businesses, get_stats, get_scraped_jobs_df,
     get_business_by_id, update_lead_status,
     get_distinct_states, get_distinct_niches,
@@ -222,49 +222,100 @@ with tab_scrape:
                 m2.metric("Niches", len(active["niches"]))
                 m3.metric("Total Jobs", total_jobs)
 
-                with st.expander("📌 Pincode Status"):
-                    cols = st.columns(8)
-                    for i, pc in enumerate(pincodes):
-                        done = is_already_scraped(pc, active["niches"][0], active["id"])
-                        cols[i % 8].caption("✅" if done else f"⬜{pc}")
+                pincode_grid_ph = st.empty()
+
+                def render_pincode_grid():
+                    with pincode_grid_ph.container():
+                        with st.expander("📌 Live Pincode Status (✅ = Done)", expanded=True):
+                            cols = st.columns(8)
+                            for i, pc in enumerate(pincodes):
+                                done = is_already_scraped(pc, active["niches"][0], active["id"])
+                                cols[i % 8].caption("✅" if done else f"⬜ {pc}")
+
+                render_pincode_grid()
 
                 if start_btn:
                     st.session_state.stop_scraping = False
+                    
+                    st.subheader("⚡ Live Scraping Progress")
+                    metric_cols = st.columns(4)
+                    mc_total = metric_cols[0].empty()
+                    mc_saved = metric_cols[1].empty()
+                    mc_phone = metric_cols[2].empty()
+                    mc_web = metric_cols[3].empty()
+
+                    mc_total.metric("Businesses Found", 0)
+                    mc_saved.metric("New Saved (Instant DB)", 0)
+                    mc_phone.metric("With Phone", 0)
+                    mc_web.metric("With Website", 0)
+
                     log_ph = st.empty()
                     prog = st.progress(0)
                     status_ph = st.empty()
                     logs = []
                     done_jobs = 0
-                    total_new = 0
+                    
+                    current_run_scraped = 0
+                    current_run_saved = 0
+                    current_run_phones = 0
+                    current_run_webs = 0
+                    current_pincode = ""
+                    current_niche = ""
+
+                    def on_item_scraped(item):
+                        nonlocal current_run_scraped, current_run_saved, current_run_phones, current_run_webs
+                        current_run_scraped += 1
+                        if item.get("Phone") not in ["N/A", ""]:
+                            current_run_phones += 1
+                        if item.get("Website Available?") == "Yes":
+                            current_run_webs += 1
+
+                        # Instantly commit to SQLite database!
+                        is_new = save_single_business(selected_state, current_pincode, current_niche, item, active["id"])
+                        if is_new:
+                            current_run_saved += 1
+
+                        # Update live metric counters instantly
+                        mc_total.metric("Businesses Found", current_run_scraped)
+                        mc_saved.metric("New Saved (Instant DB)", current_run_saved)
+                        mc_phone.metric("With Phone", current_run_phones)
+                        mc_web.metric("With Website", current_run_webs)
 
                     for pincode in pincodes:
+                        current_pincode = pincode
                         if st.session_state.stop_scraping:
-                            logs.append("⏹ Stopped by user.")
+                            logs.append("⏹ **Scraping stopped by user.**")
                             break
+
                         for niche in active["niches"]:
+                            current_niche = niche
                             if st.session_state.stop_scraping:
                                 break
+
                             done_jobs += 1
                             prog.progress(done_jobs / max(total_jobs, 1))
-                            status_ph.write(f"`{pincode}` → `{niche}` ({done_jobs}/{total_jobs})")
+                            status_ph.write(f"🔍 **{pincode}** → **{niche}** ({done_jobs}/{total_jobs})")
 
                             if is_already_scraped(pincode, niche, active["id"]):
                                 logs.append(f"⏭️ `{pincode}` / `{niche}` — Already done, skipping.")
                                 log_ph.markdown("\n\n".join(logs[-20:]))
                                 continue
+
                             try:
-                                df = scrape_google_maps(niche, pincode, max_scrolls)
-                                new_ct = save_businesses(selected_state, pincode, niche, df, active["id"])
-                                mark_as_scraped(selected_state, pincode, niche, new_ct, active["id"])
-                                total_new += new_ct
-                                logs.append(f"✅ `{pincode}` / `{niche}` — {len(df)} found, **{new_ct} new**.")
+                                initial_saved = current_run_saved
+                                df = scrape_google_maps(niche, pincode, max_scrolls, on_item_scraped=on_item_scraped)
+                                new_in_pincode = current_run_saved - initial_saved
+                                mark_as_scraped(selected_state, pincode, niche, len(df), active["id"])
+                                render_pincode_grid()
+                                logs.append(f"✅ `{pincode}` / `{niche}` — **{len(df)}** found, **{new_in_pincode} new** saved instantly.")
                             except Exception as e:
-                                logs.append(f"❌ `{pincode}` / `{niche}` — `{str(e)[:80]}`")
+                                logs.append(f"❌ `{pincode}` / `{niche}` — Error: `{str(e)[:80]}`")
                                 mark_as_scraped(selected_state, pincode, niche, 0, active["id"])
+
                             log_ph.markdown("\n\n".join(logs[-20:]))
 
                     prog.progress(1.0)
-                    st.success(f"🎉 Done! **{total_new} new businesses** saved to **{active['name']}**.")
+                    st.success(f"🎉 Scraping complete! **{current_run_saved} new businesses** permanently saved to **{active['name']}**.")
                     st.rerun()
 
 

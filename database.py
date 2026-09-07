@@ -244,6 +244,38 @@ def save_businesses(state: str, pincode: str, niche: str,
     return inserted
 
 
+def save_single_business(state: str, pincode: str, niche: str,
+                         item: dict, profile_id: int = 1) -> bool:
+    """Instantly save a single scraped business item to SQLite."""
+    maps_url = item.get("Google Maps URL", "")
+    if not maps_url:
+        return False
+    conn = get_connection()
+    cur = conn.cursor()
+    now = datetime.now().isoformat()
+    inserted = False
+    try:
+        cur.execute("""
+            INSERT OR IGNORE INTO businesses
+                (profile_id, state, pincode, niche, name, rating, reviews,
+                 phone, website_available, website_link, maps_url, scraped_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            profile_id, state, pincode, niche,
+            item.get("Name", ""), item.get("Rating", ""), item.get("Reviews", ""),
+            item.get("Phone", ""), item.get("Website Available?", ""),
+            item.get("Website Link", ""), maps_url, now
+        ))
+        if cur.rowcount > 0:
+            inserted = True
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return inserted
+
+
 def update_lead_status(business_id: int, status: str, notes: str = None):
     conn = get_connection()
     cur = conn.cursor()
