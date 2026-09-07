@@ -51,105 +51,104 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 3, on_item_s
             for _ in range(max_scrolls):
                 page.locator(feed_selector).hover()
                 page.mouse.wheel(0, 15000)
-                time.sleep(1.8)
+                time.sleep(0.8)
 
-            # Collect place links + names from the feed
-            links = page.locator('a[href*="https://www.google.com/maps/place/"]').all()
-            places = []
-            seen = set()
-            for link in links:
+            # Collect place links from the feed
+            link_locators = page.locator('a[href*="https://www.google.com/maps/place/"]').all()
+            seen_names = set()
+
+            for link_el in link_locators:
                 try:
-                    name = link.get_attribute('aria-label')
-                    href = link.get_attribute('href')
-                    if name and href and name not in seen:
-                        places.append((name, href))
-                        seen.add(name)
-                except Exception:
-                    pass
+                    name = link_el.get_attribute('aria-label')
+                    href = link_el.get_attribute('href')
+                    if not name or not href or name in seen_names:
+                        continue
+                    seen_names.add(name)
 
-            # Visit each place detail page
-            for name, href in places:
-                rating, reviews, phone, website, website_link = "N/A", "N/A", "N/A", "No", "N/A"
-                try:
-                    page.goto(href, timeout=15000)
-                    page.wait_for_selector('h1', timeout=8000)
+                    rating, reviews, phone, website, website_link = "N/A", "N/A", "N/A", "No", "N/A"
 
-                    # Rating & Reviews
+                    # ⚡ FAST-PATH: Click the link directly on the loaded page (NO page.goto!)
                     try:
-                        panel_text = page.locator('div[role="main"]').inner_text(timeout=4000)
-                        for line in panel_text.split('\n'):
-                            line = line.strip()
-                            if '(' in line and ')' in line:
-                                prefix = line.split('(')[0].strip()
-                                if prefix.replace('.', '', 1).isdigit():
-                                    rating = prefix
-                                    reviews = line.split('(')[1].replace(')', '').strip()
-                                    break
-                    except Exception:
-                        pass
+                        link_el.scroll_into_view_if_needed(timeout=2000)
+                        link_el.click(timeout=3000)
+                        page.wait_for_selector('h1', timeout=4000)
 
-                    # Phone — via aria-label on buttons
-                    try:
-                        btns = page.locator('button').all()
-                        for btn in btns:
-                            lbl = btn.get_attribute('aria-label') or ''
-                            if 'phone' in lbl.lower() or re.search(r'\+?\d[\d\s\-]{7,}', lbl):
-                                # Extract digits
-                                num = re.search(r'[\+\d][\d\s\-\(\)]{7,}', lbl)
-                                if num:
-                                    phone = num.group(0).strip()
-                                    break
-                    except Exception:
-                        pass
-
-                    # Fallback phone via HTML regex
-                    if phone == "N/A":
+                        # Extract Rating & Reviews
                         try:
-                            html = page.content()
-                            # Find tel: links
-                            match = re.search(r'tel:([\+\d\-\s\(\)]{7,})"', html)
-                            if match:
-                                phone = match.group(1).strip()
+                            panel_text = page.locator('div[role="main"]').inner_text(timeout=2000)
+                            for line in panel_text.split('\n'):
+                                line = line.strip()
+                                if '(' in line and ')' in line:
+                                    prefix = line.split('(')[0].strip()
+                                    if prefix.replace('.', '', 1).isdigit():
+                                        rating = prefix
+                                        reviews = line.split('(')[1].replace(')', '').strip()
+                                        break
                         except Exception:
                             pass
 
-                    # Website
-                    try:
-                        web_el = page.locator('a[data-item-id="authority"]')
-                        if web_el.count() > 0:
-                            website = "Yes"
-                            website_link = web_el.first.get_attribute('href') or "N/A"
-                        else:
-                            # Fallback: look for aria-label containing "website"
-                            all_links = page.locator('a').all()
-                            for lnk in all_links:
-                                lbl = lnk.get_attribute('aria-label') or ''
-                                if 'website' in lbl.lower():
+                        # Extract Phone — via data-item-id or button aria-label
+                        try:
+                            phone_el = page.locator('[data-item-id^="phone:tel:"]')
+                            if phone_el.count() > 0:
+                                phone = phone_el.first.get_attribute('data-item-id').replace('phone:tel:', '').strip()
+                            else:
+                                btns = page.locator('button[aria-label*="Phone"], button[aria-label*="phone"]').all()
+                                for btn in btns:
+                                    lbl = btn.get_attribute('aria-label') or ''
+                                    num = re.search(r'[\+\d][\d\s\-\(\)]{7,}', lbl)
+                                    if num:
+                                        phone = num.group(0).strip()
+                                        break
+                        except Exception:
+                            pass
+
+                        # Fallback phone via HTML regex
+                        if phone == "N/A":
+                            try:
+                                html = page.locator('div[role="main"]').inner_html(timeout=2000)
+                                match = re.search(r'tel:([\+\d\-\s\(\)]{7,})"', html)
+                                if match:
+                                    phone = match.group(1).strip()
+                            except Exception:
+                                pass
+
+                        # Extract Website
+                        try:
+                            web_el = page.locator('a[data-item-id="authority"]')
+                            if web_el.count() > 0:
+                                website = "Yes"
+                                website_link = web_el.first.get_attribute('href') or "N/A"
+                            else:
+                                web_btns = page.locator('a[aria-label*="website"], a[aria-label*="Website"]').all()
+                                if web_btns:
                                     website = "Yes"
-                                    website_link = lnk.get_attribute('href') or "N/A"
-                                    break
+                                    website_link = web_btns[0].get_attribute('href') or "N/A"
+                        except Exception:
+                            pass
+
                     except Exception:
                         pass
+
+                    item = {
+                        "Name": name,
+                        "Rating": rating,
+                        "Reviews": reviews,
+                        "Phone": phone,
+                        "Website Available?": website,
+                        "Website Link": website_link,
+                        "Google Maps URL": href
+                    }
+                    results.append(item)
+
+                    if on_item_scraped:
+                        try:
+                            on_item_scraped(item)
+                        except Exception:
+                            pass
 
                 except Exception:
-                    pass
-
-                item = {
-                    "Name": name,
-                    "Rating": rating,
-                    "Reviews": reviews,
-                    "Phone": phone,
-                    "Website Available?": website,
-                    "Website Link": website_link,
-                    "Google Maps URL": href
-                }
-                results.append(item)
-
-                if on_item_scraped:
-                    try:
-                        on_item_scraped(item)
-                    except Exception:
-                        pass
+                    continue
 
         except Exception as e:
             browser.close()
