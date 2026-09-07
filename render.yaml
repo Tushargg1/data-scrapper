@@ -1,0 +1,20 @@
+services:
+  # Streamlit Web Interface + Playwright Scraper
+  - type: web
+    name: beauty-biz-scraper-ui
+    env: python
+    buildCommand: "pip install -r requirements.txt && playwright install --with-deps chromium"
+    startCommand: "streamlit run app.py --server.port $PORT --server.address 0.0.0.0"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+
+  # FastAPI REST API Server
+  - type: web
+    name: beauty-biz-scraper-api
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn api:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0

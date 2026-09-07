@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+.venv/
+*.db
+*.sqlite3
+*.log
+.DS_Store
+test_scrape.py
+download_pincodes.py

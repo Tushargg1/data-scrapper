@@ -1,0 +1,6 @@
+streamlit
+playwright
+pandas
+fastapi
+uvicorn[standard]
+pydantic
