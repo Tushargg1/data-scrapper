@@ -87,31 +87,40 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 3, on_item_s
                         except Exception:
                             pass
 
-                        # Extract Phone — via data-item-id or button aria-label
+                        # Extract Phones — collect up to 3 unique numbers per business
+                        phones = []
                         try:
-                            phone_el = page.locator('[data-item-id^="phone:tel:"]')
-                            if phone_el.count() > 0:
-                                phone = phone_el.first.get_attribute('data-item-id').replace('phone:tel:', '').strip()
-                            else:
-                                btns = page.locator('button[aria-label*="Phone"], button[aria-label*="phone"]').all()
-                                for btn in btns:
-                                    lbl = btn.get_attribute('aria-label') or ''
-                                    num = re.search(r'[\+\d][\d\s\-\(\)]{7,}', lbl)
-                                    if num:
-                                        phone = num.group(0).strip()
-                                        break
+                            p_els = page.locator('[data-item-id^="phone:tel:"]').all()
+                            for p_el in p_els:
+                                pid = p_el.get_attribute('data-item-id') or ''
+                                num = pid.replace('phone:tel:', '').strip()
+                                if num and num not in phones:
+                                    phones.append(num)
+
+                            btns = page.locator('button[aria-label*="Phone"], button[aria-label*="phone"]').all()
+                            for btn in btns:
+                                lbl = btn.get_attribute('aria-label') or ''
+                                matches = re.findall(r'[\+\d][\d\s\-\(\)]{7,}', lbl)
+                                for m in matches:
+                                    m_clean = m.strip()
+                                    if len(m_clean) >= 8 and m_clean not in phones:
+                                        phones.append(m_clean)
+
+                            try:
+                                html = page.locator('div[role="main"]').inner_html(timeout=2000)
+                                matches = re.findall(r'tel:([\+\d\-\s\(\)]{7,})"', html)
+                                for m in matches:
+                                    m_clean = m.strip()
+                                    if len(m_clean) >= 8 and m_clean not in phones:
+                                        phones.append(m_clean)
+                            except Exception:
+                                pass
                         except Exception:
                             pass
 
-                        # Fallback phone via HTML regex
-                        if phone == "N/A":
-                            try:
-                                html = page.locator('div[role="main"]').inner_html(timeout=2000)
-                                match = re.search(r'tel:([\+\d\-\s\(\)]{7,})"', html)
-                                if match:
-                                    phone = match.group(1).strip()
-                            except Exception:
-                                pass
+                        phone_1 = phones[0] if len(phones) > 0 else "N/A"
+                        phone_2 = phones[1] if len(phones) > 1 else ""
+                        phone_3 = phones[2] if len(phones) > 2 else ""
 
                         # Extract Website
                         try:
@@ -134,7 +143,10 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 3, on_item_s
                         "Name": name,
                         "Rating": rating,
                         "Reviews": reviews,
-                        "Phone": phone,
+                        "Phone": phone_1,
+                        "Phone 1": phone_1,
+                        "Phone 2": phone_2,
+                        "Phone 3": phone_3,
                         "Website Available?": website,
                         "Website Link": website_link,
                         "Google Maps URL": href

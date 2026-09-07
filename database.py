@@ -62,6 +62,8 @@ def init_db():
             rating           TEXT,
             reviews          TEXT,
             phone            TEXT,
+            phone_2          TEXT DEFAULT '',
+            phone_3          TEXT DEFAULT '',
             website_available TEXT,
             website_link     TEXT,
             maps_url         TEXT,
@@ -81,6 +83,8 @@ def init_db():
             pass  # column already exists
 
     _add_col("businesses",   "profile_id",  "INTEGER NOT NULL DEFAULT 1")
+    _add_col("businesses",   "phone_2",     "TEXT DEFAULT ''")
+    _add_col("businesses",   "phone_3",     "TEXT DEFAULT ''")
     _add_col("businesses",   "lead_status", "TEXT DEFAULT '🆕 New Lead'")
     _add_col("businesses",   "notes",       "TEXT DEFAULT ''")
     _add_col("businesses",   "updated_at",  "TEXT")
@@ -227,12 +231,15 @@ def save_businesses(state: str, pincode: str, niche: str,
             cur.execute("""
                 INSERT OR IGNORE INTO businesses
                     (profile_id, state, pincode, niche, name, rating, reviews,
-                     phone, website_available, website_link, maps_url, scraped_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     phone, phone_2, phone_3, website_available, website_link, maps_url, scraped_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 profile_id, state, pincode, niche,
                 row.get("Name", ""), row.get("Rating", ""), row.get("Reviews", ""),
-                row.get("Phone", ""), row.get("Website Available?", ""),
+                row.get("Phone 1", row.get("Phone", "")),
+                row.get("Phone 2", ""),
+                row.get("Phone 3", ""),
+                row.get("Website Available?", ""),
                 row.get("Website Link", ""), maps_url, now
             ))
             if cur.rowcount > 0:
@@ -258,12 +265,15 @@ def save_single_business(state: str, pincode: str, niche: str,
         cur.execute("""
             INSERT OR IGNORE INTO businesses
                 (profile_id, state, pincode, niche, name, rating, reviews,
-                 phone, website_available, website_link, maps_url, scraped_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 phone, phone_2, phone_3, website_available, website_link, maps_url, scraped_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             profile_id, state, pincode, niche,
             item.get("Name", ""), item.get("Rating", ""), item.get("Reviews", ""),
-            item.get("Phone", ""), item.get("Website Available?", ""),
+            item.get("Phone 1", item.get("Phone", "")),
+            item.get("Phone 2", ""),
+            item.get("Phone 3", ""),
+            item.get("Website Available?", ""),
             item.get("Website Link", ""), maps_url, now
         ))
         if cur.rowcount > 0:

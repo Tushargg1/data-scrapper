@@ -375,8 +375,13 @@ with tab_leads:
                         st.write(f"**📍** {biz['state']} — {biz['pincode']}")
                         st.write(f"**🏷️ Niche:** {biz['niche']}")
                         st.write(f"**⭐ Rating:** {biz['rating']} ({biz['reviews']} reviews)")
-                        phone = biz['phone'] if biz['phone'] not in ['N/A', ''] else '❌ No phone'
-                        st.write(f"**📞 Phone:** {phone}")
+                        phone1 = biz.get('phone') or '❌ No phone'
+                        phone2 = biz.get('phone_2') or ''
+                        phone3 = biz.get('phone_3') or ''
+                        phone_str = phone1
+                        if phone2: phone_str += f" | {phone2}"
+                        if phone3: phone_str += f" | {phone3}"
+                        st.write(f"**📞 Phone(s):** {phone_str}")
                         if biz['website_available'] == 'Yes' and biz['website_link'] not in ['N/A', '']:
                             st.write(f"**🌐 Website:** [Visit]({biz['website_link']})")
                         else:
@@ -416,7 +421,7 @@ with tab_data:
             st.info("No data yet. Go to the Scrape tab!")
         else:
             keep = ["id", "name", "niche", "pincode", "state", "rating", "reviews",
-                    "phone", "website_available", "website_link", "lead_status", "maps_url", "scraped_at"]
+                    "phone", "phone_2", "phone_3", "website_available", "website_link", "lead_status", "maps_url", "scraped_at"]
             df_disp = df_view[[c for c in keep if c in df_view.columns]].copy()
             df_disp.columns = [c.replace("_", " ").title() for c in df_disp.columns]
             st.write(f"**{len(df_disp)}** records")
