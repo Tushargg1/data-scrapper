@@ -24,6 +24,8 @@ from database import (
     get_businesses, get_business_by_id, update_lead_status,
     get_all_businesses_df, get_stats, get_scraped_jobs_df,
     get_distinct_states, get_distinct_niches,
+    register_api_user, get_user_by_code, get_all_api_users,
+    update_user_status, get_and_mark_unsent_batch, get_batch_delivery_stats,
 )
 from profiles_manager import create_new_profile, get_template_names, get_template
 from niches import ALL_NICHES, ALL_INDUSTRY_NICHES, LEAD_STATUSES
@@ -316,3 +318,148 @@ def pincodes_for_state(state: str):
 @app.get("/api/lead-statuses", tags=["Global (Admin)"], dependencies=[Depends(require_admin)])
 def lead_statuses():
     return {"lead_statuses": LEAD_STATUSES}
+
+
+# ── User Registration & Batch Models ─────────────────────────────────────────
+
+class UserRegisterRequest(BaseModel):
+    username: str
+    phone_number: str
+    user_code: str
+    profile_slug: Optional[str] = None
+
+
+class UserStatusUpdateRequest(BaseModel):
+    status: str  # APPROVED or REJECTED
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# USER REGISTRATION & ACCESS SYSTEM
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/users/register", tags=["User Access & Registration"])
+def api_register_user(body: UserRegisterRequest):
+    """
+    External users register with username, phone_number, and a unique user_code.
+    User account is saved as PENDING until admin approves it.
+    """
+    if not body.username or not body.phone_number or not body.user_code:
+        raise HTTPException(status_code=400, detail="username, phone_number, and user_code are required.")
+
+    if get_user_by_code(body.user_code):
+        raise HTTPException(status_code=400, detail=f"User code '{body.user_code}' is already registered.")
+
+    profile_id = 1
+    if body.profile_slug:
+        p = get_profile_by_slug(body.profile_slug)
+        if p:
+            profile_id = p["id"]
+
+    user = register_api_user(
+        username=body.username.strip(),
+        phone_number=body.phone_number.strip(),
+        user_code=body.user_code.strip(),
+        profile_id=profile_id
+    )
+    return {
+        "success": True,
+        "message": "Registration submitted successfully! Pending admin approval.",
+        "user": user
+    }
+
+
+@app.get("/api/users/status/{user_code}", tags=["User Access & Registration"])
+def api_user_status(user_code: str):
+    """Check the status of a user registration code (PENDING, APPROVED, REJECTED)."""
+    user = get_user_by_code(user_code)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User code '{user_code}' not found.")
+    return {
+        "user_code": user["user_code"],
+        "username": user["username"],
+        "status": user["status"],
+        "created_at": user["created_at"],
+        "approved_at": user["approved_at"]
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 10-BATCH DATA DELIVERY ENDPOINT (APPROVED USERS ONLY)
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/data/batch", tags=["10-Batch Lead Delivery"])
+def api_get_batch_data(
+    x_user_code: Optional[str] = Header(None, alias="X-User-Code"),
+    user_code: Optional[str] = Query(None),
+):
+    """
+    Fetch a batch of max 10 FRESH (UNSENT) businesses.
+    Requires header `X-User-Code: <user_code>` (or query param `user_code`).
+
+    1. Validates that the user_code is APPROVED by the admin.
+    2. Returns up to 10 businesses that have NEVER been sent to any user yet.
+    3. Atomically marks those 10 businesses as SENT in the database.
+    """
+    code = x_user_code or user_code
+    if not code:
+        raise HTTPException(status_code=401, detail="User code required. Pass header 'X-User-Code' or query param 'user_code'.")
+
+    user = get_user_by_code(code)
+    if not user:
+        raise HTTPException(status_code=401, detail=f"Invalid user code '{code}'. Register first at POST /api/users/register.")
+
+    if user["status"] != "APPROVED":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access denied. User status is '{user['status']}'. Wait for admin approval."
+        )
+
+    profile_id = user.get("profile_id", 1)
+
+    # Fetch exactly 10 unsent leads & mark them sent in a single transaction
+    batch = get_and_mark_unsent_batch(user_code=user["user_code"], profile_id=profile_id, limit=10)
+
+    return {
+        "success": True,
+        "user_code": user["user_code"],
+        "username": user["username"],
+        "batch_size": len(batch),
+        "message": f"Successfully delivered {len(batch)} fresh leads. Marked as sent.",
+        "businesses": df_to_records(pd.DataFrame(batch)) if batch else []
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ADMIN USER APPROVAL ENDPOINTS (Requires Admin Key)
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/admin/users", tags=["User Access (Admin)"], dependencies=[Depends(require_admin)])
+def admin_list_users(status: Optional[str] = Query(None)):
+    """List all registered API users (filter by status PENDING, APPROVED, REJECTED)."""
+    users = get_all_api_users(status=status)
+    return {"total": len(users), "users": users}
+
+
+@app.patch("/api/admin/users/{user_code}/status", tags=["User Access (Admin)"], dependencies=[Depends(require_admin)])
+def admin_update_user_status(user_code: str, body: UserStatusUpdateRequest):
+    """Approve or reject a user's access request."""
+    if body.status not in ["APPROVED", "REJECTED", "PENDING"]:
+        raise HTTPException(status_code=400, detail="Status must be APPROVED, REJECTED, or PENDING.")
+
+    user = get_user_by_code(user_code)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User code '{user_code}' not found.")
+
+    update_user_status(user_code, body.status)
+    return {
+        "success": True,
+        "user_code": user_code,
+        "new_status": body.status,
+        "user": get_user_by_code(user_code)
+    }
+
+
+@app.get("/api/admin/delivery-stats", tags=["User Access (Admin)"], dependencies=[Depends(require_admin)])
+def admin_delivery_stats():
+    """Get lead delivery and inventory stats."""
+    return get_batch_delivery_stats()

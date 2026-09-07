@@ -8,6 +8,7 @@ from database import (
     get_business_by_id, update_lead_status,
     get_distinct_states, get_distinct_niches,
     get_all_profiles, get_profile_by_slug, delete_profile,
+    get_all_api_users, update_user_status, get_batch_delivery_stats, register_api_user,
 )
 from profiles_manager import (
     create_new_profile, get_template_names, get_template, PROFILE_TEMPLATES
@@ -74,8 +75,8 @@ with st.sidebar:
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_profiles, tab_scrape, tab_leads, tab_data, tab_log, tab_api = st.tabs([
-    "🗂️ Profiles", "🔍 Scrape", "👤 Lead Profiles", "📋 Data", "📜 Job Log", "🔌 API Docs"
+tab_profiles, tab_scrape, tab_leads, tab_users, tab_data, tab_log, tab_api = st.tabs([
+    "🗂️ Profiles", "🔍 Scrape", "👤 Lead Profiles", "👥 User Approvals", "📋 Data", "📜 Job Log", "🔌 API Docs"
 ])
 
 
@@ -402,6 +403,93 @@ with tab_leads:
                             update_lead_status(biz_id, new_status, new_notes)
                             st.success("Saved!")
                             st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — USER ACCESS & APPROVALS (10-BATCH DELIVERY ENGINE)
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_users:
+    st.header("👥 API User Access & 10-Batch Delivery Engine")
+    st.caption("Approve external users, manage user codes, and monitor non-repeating 10-batch lead delivery.")
+
+    # Inventory Metrics
+    active = st.session_state.active_profile
+    profile_id = active["id"] if active else None
+    deliv_stats = get_batch_delivery_stats(profile_id=profile_id)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("📦 Total Leads", deliv_stats["total_leads"])
+    m2.metric("✨ Unsent Fresh Leads", deliv_stats["unsent_fresh_leads"])
+    m3.metric("📤 Delivered Leads", deliv_stats["delivered_leads"])
+    m4.metric("⏳ Pending Users", deliv_stats["pending_users"])
+
+    st.divider()
+
+    # User registration approval list
+    col_pending, col_approved = st.columns(2)
+
+    with col_pending:
+        st.subheader("⏳ Pending Approval Requests")
+        pending_users = get_all_api_users(status="PENDING")
+        if not pending_users:
+            st.info("No pending user registration requests.")
+        else:
+            for u in pending_users:
+                with st.container(border=True):
+                    st.write(f"👤 **{u['username']}** (`{u['user_code']}`)")
+                    st.write(f"📞 **Phone:** {u['phone_number']}")
+                    st.caption(f"Requested at: {u['created_at'][:19]}")
+
+                    c_app, c_rej = st.columns(2)
+                    if c_app.button("✅ Approve User", key=f"app_{u['user_code']}", type="primary"):
+                        update_user_status(u['user_code'], "APPROVED")
+                        st.success(f"Approved {u['username']}!")
+                        st.rerun()
+                    if c_rej.button("❌ Reject", key=f"rej_{u['user_code']}"):
+                        update_user_status(u['user_code'], "REJECTED")
+                        st.warning(f"Rejected {u['username']}.")
+                        st.rerun()
+
+    with col_approved:
+        st.subheader("✅ Active Approved Users")
+        approved_users = get_all_api_users(status="APPROVED")
+        if not approved_users:
+            st.info("No approved users yet.")
+        else:
+            for u in approved_users:
+                with st.container(border=True):
+                    st.write(f"👤 **{u['username']}** — Code: `{u['user_code']}`")
+                    st.write(f"📞 **Phone:** {u['phone_number']}")
+                    st.caption(f"Approved at: {str(u.get('approved_at'))[:19]}")
+
+                    # Option to revoke / reject
+                    if st.button("🔴 Revoke Access", key=f"revoke_{u['user_code']}"):
+                        update_user_status(u['user_code'], "REJECTED")
+                        st.warning(f"Revoked access for {u['username']}.")
+                        st.rerun()
+
+    st.divider()
+
+    # Admin Manual User Registration Form
+    st.subheader("➕ Manually Add/Approve User Code")
+    with st.form("manual_user_form"):
+        col1, col2, col3 = st.columns(3)
+        m_user = col1.text_input("Username", placeholder="e.g. John Doe")
+        m_phone = col2.text_input("Phone Number", placeholder="e.g. 9876543210")
+        m_code = col3.text_input("Unique User Code", placeholder="e.g. JOHN123")
+        m_submit = st.form_submit_button("🚀 Create & Approve User Instantly")
+
+        if m_submit:
+            if m_user and m_phone and m_code:
+                try:
+                    u = register_api_user(m_user, m_phone, m_code, profile_id=profile_id or 1)
+                    update_user_status(m_code, "APPROVED")
+                    st.success(f"✅ User **{m_user}** (`{m_code}`) created and APPROVED!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+            else:
+                st.error("Please fill in Username, Phone Number, and User Code.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

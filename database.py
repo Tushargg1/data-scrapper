@@ -69,9 +69,36 @@ def init_db():
             maps_url         TEXT,
             lead_status      TEXT DEFAULT '🆕 New Lead',
             notes            TEXT DEFAULT '',
+            is_sent          INTEGER DEFAULT 0,
+            sent_to_user_code TEXT DEFAULT NULL,
+            sent_at          TEXT DEFAULT NULL,
             scraped_at       TEXT NOT NULL,
             updated_at       TEXT,
             UNIQUE(profile_id, maps_url)
+        )
+    """)
+
+    # ── API Users Table (Registration & Admin Approval) ──────────────────────
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS api_users (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            username     TEXT NOT NULL,
+            phone_number TEXT NOT NULL,
+            user_code    TEXT NOT NULL UNIQUE,
+            profile_id   INTEGER DEFAULT 1,
+            status       TEXT DEFAULT 'PENDING',  -- PENDING, APPROVED, REJECTED
+            created_at   TEXT NOT NULL,
+            approved_at  TEXT DEFAULT NULL
+        )
+    """)
+
+    # ── Sent History Table ───────────────────────────────────────────────────
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sent_history (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_code   TEXT NOT NULL,
+            business_id INTEGER NOT NULL,
+            sent_at     TEXT NOT NULL
         )
     """)
 
@@ -82,13 +109,16 @@ def init_db():
         except Exception:
             pass  # column already exists
 
-    _add_col("businesses",   "profile_id",  "INTEGER NOT NULL DEFAULT 1")
-    _add_col("businesses",   "phone_2",     "TEXT DEFAULT ''")
-    _add_col("businesses",   "phone_3",     "TEXT DEFAULT ''")
-    _add_col("businesses",   "lead_status", "TEXT DEFAULT '🆕 New Lead'")
-    _add_col("businesses",   "notes",       "TEXT DEFAULT ''")
-    _add_col("businesses",   "updated_at",  "TEXT")
-    _add_col("scraped_jobs", "profile_id",  "INTEGER NOT NULL DEFAULT 1")
+    _add_col("businesses",   "profile_id",        "INTEGER NOT NULL DEFAULT 1")
+    _add_col("businesses",   "phone_2",           "TEXT DEFAULT ''")
+    _add_col("businesses",   "phone_3",           "TEXT DEFAULT ''")
+    _add_col("businesses",   "lead_status",       "TEXT DEFAULT '🆕 New Lead'")
+    _add_col("businesses",   "notes",             "TEXT DEFAULT ''")
+    _add_col("businesses",   "updated_at",        "TEXT")
+    _add_col("businesses",   "is_sent",           "INTEGER DEFAULT 0")
+    _add_col("businesses",   "sent_to_user_code", "TEXT DEFAULT NULL")
+    _add_col("businesses",   "sent_at",           "TEXT DEFAULT NULL")
+    _add_col("scraped_jobs", "profile_id",        "INTEGER NOT NULL DEFAULT 1")
 
     conn.commit()
     conn.close()
@@ -449,3 +479,140 @@ def get_distinct_niches(profile_id: int = None) -> list:
     rows = cur.fetchall()
     conn.close()
     return [r["niche"] for r in rows]
+
+
+# ── API User Management & Batch Delivery ──────────────────────────────────────
+
+def register_api_user(username: str, phone_number: str, user_code: str, profile_id: int = 1) -> dict:
+    """Register a new external API user (saved as PENDING)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    now = datetime.now().isoformat()
+    cur.execute("""
+        INSERT INTO api_users (username, phone_number, user_code, profile_id, status, created_at)
+        VALUES (?, ?, ?, ?, 'PENDING', ?)
+    """, (username, phone_number, user_code, profile_id, now))
+    conn.commit()
+    conn.close()
+    return get_user_by_code(user_code)
+
+
+def get_user_by_code(user_code: str) -> dict:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM api_users WHERE user_code=?", (user_code,))
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_all_api_users(status: str = None) -> list:
+    conn = get_connection()
+    cur = conn.cursor()
+    if status:
+        cur.execute("SELECT * FROM api_users WHERE status=? ORDER BY created_at DESC", (status,))
+    else:
+        cur.execute("SELECT * FROM api_users ORDER BY created_at DESC")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def update_user_status(user_code: str, status: str) -> bool:
+    conn = get_connection()
+    cur = conn.cursor()
+    now = datetime.now().isoformat()
+    approved_at = now if status == 'APPROVED' else None
+    cur.execute(
+        "UPDATE api_users SET status=?, approved_at=? WHERE user_code=?",
+        (status, approved_at, user_code)
+    )
+    affected = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return affected
+
+
+def get_and_mark_unsent_batch(user_code: str, profile_id: int = None, limit: int = 10) -> list:
+    """
+    ATOMIC 10-BATCH DELIVERY:
+    1. Finds up to `limit` businesses (default 10) where is_sent = 0.
+    2. Immediately marks them as is_sent = 1, sent_to_user_code = user_code.
+    3. Records them in sent_history table.
+    Returns list of dicts.
+    Guarantees no lead is ever sent twice to any user!
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    now = datetime.now().isoformat()
+
+    # Query unsent businesses
+    query = "SELECT * FROM businesses WHERE is_sent=0"
+    params = []
+    if profile_id:
+        query += " AND profile_id=?"
+        params.append(profile_id)
+
+    query += " ORDER BY id ASC LIMIT ?"
+    params.append(limit)
+
+    cur.execute(query, params)
+    rows = [dict(r) for r in cur.fetchall()]
+
+    if not rows:
+        conn.close()
+        return []
+
+    # Mark as sent and record in history
+    biz_ids = [r["id"] for r in rows]
+    placeholders = ",".join(["?"] * len(biz_ids))
+
+    # Update businesses table
+    cur.execute(f"""
+        UPDATE businesses
+        SET is_sent=1, sent_to_user_code=?, sent_at=?
+        WHERE id IN ({placeholders})
+    """, [user_code, now] + biz_ids)
+
+    # Record in sent_history
+    history_entries = [(user_code, bid, now) for bid in biz_ids]
+    cur.executemany("""
+        INSERT INTO sent_history (user_code, business_id, sent_at)
+        VALUES (?, ?, ?)
+    """, history_entries)
+
+    conn.commit()
+    conn.close()
+    return rows
+
+
+def get_batch_delivery_stats(profile_id: int = None) -> dict:
+    conn = get_connection()
+    cur = conn.cursor()
+    pid_filter = "WHERE profile_id=?" if profile_id else ""
+    pid_args = (profile_id,) if profile_id else ()
+
+    cur.execute(f"SELECT COUNT(*) FROM businesses {pid_filter}", pid_args)
+    total = cur.fetchone()[0]
+
+    unsent_filter = (f"WHERE profile_id=? AND is_sent=0" if profile_id
+                     else "WHERE is_sent=0")
+    cur.execute(f"SELECT COUNT(*) FROM businesses {unsent_filter}", pid_args)
+    unsent = cur.fetchone()[0]
+
+    sent = total - unsent
+
+    cur.execute("SELECT COUNT(*) FROM api_users WHERE status='PENDING'")
+    pending_users = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM api_users WHERE status='APPROVED'")
+    approved_users = cur.fetchone()[0]
+
+    conn.close()
+    return {
+        "total_leads": total,
+        "unsent_fresh_leads": unsent,
+        "delivered_leads": sent,
+        "pending_users": pending_users,
+        "approved_users": approved_users,
+    }
