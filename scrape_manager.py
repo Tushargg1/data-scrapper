@@ -110,7 +110,13 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
                             current_scrape_job["saved"] += 1
 
                 try:
-                    df = scrape_google_maps(niche=niche, pincode=pc, max_scrolls=max_scrolls, on_item_scraped=on_item_scraped)
+                    df = scrape_google_maps(
+                        niche=niche,
+                        pincode=pc,
+                        max_scrolls=max_scrolls,
+                        on_item_scraped=on_item_scraped,
+                        should_stop=lambda: stop_scrape_event.is_set()
+                    )
                     count = len(df) if df is not None and not df.empty else 0
                     mark_as_scraped(state, pc, niche, count, profile_id)
                 except Exception as ex:
