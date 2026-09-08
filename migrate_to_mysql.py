@@ -8,12 +8,22 @@ import json
 import os
 import time
 
+import sys
+import argparse
+
+parser = argparse.ArgumentParser(description="Migrate SQLite to Aiven MySQL")
+parser.add_argument("--host", help="MySQL Host")
+parser.add_argument("--password", help="MySQL Password")
+parser.add_argument("--user", help="MySQL User")
+parser.add_argument("--db", help="MySQL Database")
+args, _ = parser.parse_known_args()
+
 # Aiven MySQL Config
-MYSQL_HOST = os.getenv("MYSQL_HOST", "data-extractor-groomitindia.i.aivencloud.com")
+MYSQL_HOST = args.host or os.getenv("MYSQL_HOST", "data-extractor-groomitindia.i.aivencloud.com")
 MYSQL_PORT = int(os.getenv("MYSQL_PORT", 23652))
-MYSQL_USER = os.getenv("MYSQL_USER", "avnadmin")
-MYSQL_PASS = os.getenv("MYSQL_PASS") or ("AVNS_" + "oc1lMJI7aq4" + "ea6u1LIB")
-MYSQL_DB   = os.getenv("MYSQL_DB", "defaultdb")
+MYSQL_USER = args.user or os.getenv("MYSQL_USER", "avnadmin")
+MYSQL_PASS = args.password or os.getenv("MYSQL_PASS") or ("AVNS_" + "oc1lMJI7aq4" + "ea6u1LIB")
+MYSQL_DB   = args.db or os.getenv("MYSQL_DB", "defaultdb")
 
 SQLITE_PATH = os.path.join(os.path.dirname(__file__), "scraper_data.db")
 
