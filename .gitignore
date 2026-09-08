@@ -14,3 +14,5 @@ ENV/
 .DS_Store
 test_scrape.py
 download_pincodes.py
+
+.vercel
