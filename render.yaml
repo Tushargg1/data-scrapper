@@ -3,7 +3,7 @@ services:
   - type: web
     name: beauty-biz-scraper-ui
     env: python
-    buildCommand: "pip install -r requirements.txt && playwright install --with-deps chromium"
+    buildCommand: "pip install -r requirements.txt && playwright install chromium"
     startCommand: "streamlit run app.py --server.port $PORT --server.address 0.0.0.0"
     envVars:
       - key: PYTHON_VERSION
