@@ -1,11 +1,19 @@
 import sys
 import os
+import importlib.util
 
-# Add root directory to sys.path so api.py and other modules can be imported
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Root directory path
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 
 try:
-    from api import app
+    api_py_path = os.path.join(root_dir, "api.py")
+    spec = importlib.util.spec_from_file_location("root_api_server", api_py_path)
+    main_api = importlib.util.module_from_spec(spec)
+    sys.modules["root_api_server"] = main_api
+    spec.loader.exec_module(main_api)
+    app = main_api.app
 except Exception as e:
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
@@ -17,3 +25,4 @@ except Exception as e:
             status_code=500,
             content={"error": "Vercel Serverless Initialization Error", "details": str(e)}
         )
+
