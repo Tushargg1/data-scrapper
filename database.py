@@ -520,6 +520,50 @@ def update_lead_status(business_id: int, status: str, notes: str = None):
         conn.close()
 
 
+def get_businesses_without_phone(profile_id: int) -> list:
+    """Return list of dicts for businesses with no phone number (for phone enrichment)."""
+    conn, is_mysql = get_connection()
+    try:
+        query = """
+            SELECT id, name, pincode, state, niche, phone, phone_2, maps_url
+            FROM businesses
+            WHERE profile_id=?
+              AND (phone IS NULL OR phone='' OR phone='N/A')
+            ORDER BY scraped_at DESC
+        """
+        cur = execute_db(conn, is_mysql, query, (profile_id,))
+        rows = cur.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def update_business_phone(business_id: int, phone: str = None, phone_2: str = None):
+    """Update phone and/or phone_2 for a business. Only updates non-None values.
+    Never overwrites an existing non-empty phone with None."""
+    conn, is_mysql = get_connection()
+    try:
+        now = datetime.now().isoformat()
+        if phone is not None and phone_2 is not None:
+            execute_db(conn, is_mysql,
+                "UPDATE businesses SET phone=?, phone_2=?, updated_at=? WHERE id=?",
+                (phone, phone_2, now, business_id)
+            )
+        elif phone is not None:
+            execute_db(conn, is_mysql,
+                "UPDATE businesses SET phone=?, updated_at=? WHERE id=?",
+                (phone, now, business_id)
+            )
+        elif phone_2 is not None:
+            execute_db(conn, is_mysql,
+                "UPDATE businesses SET phone_2=?, updated_at=? WHERE id=?",
+                (phone_2, now, business_id)
+            )
+        if not is_mysql: conn.commit()
+    finally:
+        conn.close()
+
+
 def get_businesses(profile_id: int = 1, state: str = None, pincode: str = None,
                    niche: str = None, has_phone: bool = None, has_website: bool = None,
                    lead_status: str = None, page: int = 1, limit: int = 500) -> pd.DataFrame:

@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
-  Download, Search, Filter, Database, FileSpreadsheet, 
-  Phone, Globe, Star, ExternalLink, Loader2, RefreshCw 
+  Download, Search, Phone, Globe, Star, ExternalLink,
+  Loader2, RefreshCw, Zap, StopCircle, CheckCircle2, XCircle
 } from "lucide-react";
-import { getBusinesses, getExportCsvUrl, getStates } from "../api";
+import { getBusinesses, getExportCsvUrl, getStates,
+         startPhoneEnrichment, getEnrichmentStatus, stopEnrichment } from "../api";
 
 export default function DataTab({ activeProfile }) {
   const [businesses, setBusinesses] = useState([]);
@@ -12,6 +13,11 @@ export default function DataTab({ activeProfile }) {
   const [states, setStates] = useState([]);
   const [selectedState, setSelectedState] = useState("");
   const [selectedNiche, setSelectedNiche] = useState("");
+
+  // Enrichment state
+  const [enrichStatus, setEnrichStatus] = useState(null); // null | status object
+  const [enrichMsg, setEnrichMsg] = useState("");
+  const enrichPollRef = useRef(null);
 
   const fetchRecords = async () => {
     if (!activeProfile) return;
@@ -37,6 +43,64 @@ export default function DataTab({ activeProfile }) {
   useEffect(() => {
     fetchRecords();
   }, [activeProfile, selectedState, selectedNiche]);
+
+  // Poll enrichment status while running
+  const startEnrichPoll = () => {
+    if (enrichPollRef.current) return;
+    enrichPollRef.current = setInterval(async () => {
+      if (!activeProfile) return;
+      try {
+        const s = await getEnrichmentStatus(activeProfile.slug, activeProfile.api_key);
+        setEnrichStatus(s);
+        if (s.status !== "running") {
+          clearInterval(enrichPollRef.current);
+          enrichPollRef.current = null;
+          fetchRecords(); // refresh table with newly found numbers
+        } else {
+          // Refresh table every ~24s during enrichment (every 3 polls)
+          if (s.done % 3 === 0) fetchRecords();
+        }
+      } catch (_) {}
+    }, 8000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (enrichPollRef.current) clearInterval(enrichPollRef.current);
+    };
+  }, []);
+
+  const handleStartEnrich = async () => {
+    if (!activeProfile) return;
+    setEnrichMsg("Starting enrichment...");
+    try {
+      const res = await startPhoneEnrichment(activeProfile.slug, activeProfile.api_key);
+      if (res.success) {
+        setEnrichMsg(`✅ ${res.message}`);
+        setEnrichStatus({ status: "running", total: res.total, done: 0, found: 0, progress_percent: 0 });
+        startEnrichPoll();
+      } else {
+        setEnrichMsg(`⚠️ ${res.message}`);
+        // If already running, start polling
+        if (res.message?.includes("already running")) {
+          setEnrichStatus(res.status || null);
+          startEnrichPoll();
+        }
+      }
+    } catch (err) {
+      setEnrichMsg(`❌ Error: ${err.message}`);
+    }
+  };
+
+  const handleStopEnrich = async () => {
+    if (!activeProfile) return;
+    try {
+      await stopEnrichment(activeProfile.slug, activeProfile.api_key);
+      setEnrichMsg("⏹ Stop signal sent.");
+    } catch (err) {
+      setEnrichMsg(`❌ ${err.message}`);
+    }
+  };
 
   const filtered = businesses.filter((b) => {
     if (!search) return true;
@@ -65,7 +129,23 @@ export default function DataTab({ activeProfile }) {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Find Missing Phones button */}
+          {enrichStatus?.status === "running" ? (
+            <button
+              onClick={handleStopEnrich}
+              className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 transition"
+            >
+              <StopCircle className="w-4 h-4" /> Stop Enrichment
+            </button>
+          ) : (
+            <button
+              onClick={handleStartEnrich}
+              className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-violet-500/20 transition flex items-center gap-2"
+            >
+              <Zap className="w-4 h-4" /> Find Missing Phones
+            </button>
+          )}
           <a
             href={exportUrl}
             target="_blank"
@@ -76,6 +156,84 @@ export default function DataTab({ activeProfile }) {
           </a>
         </div>
       </div>
+
+      {/* Phone Enrichment Progress Panel */}
+      {(enrichStatus || enrichMsg) && (
+        <div className="bg-slate-900 border border-violet-800/50 rounded-2xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-violet-300 flex items-center gap-2">
+              <Zap className="w-4 h-4" /> Phone Enrichment
+              {enrichStatus?.status === "running" && (
+                <Loader2 className="w-3.5 h-3.5 animate-spin ml-1 text-violet-400" />
+              )}
+              {enrichStatus?.status === "completed" && (
+                <CheckCircle2 className="w-3.5 h-3.5 ml-1 text-emerald-400" />
+              )}
+              {enrichStatus?.status === "stopped" && (
+                <XCircle className="w-3.5 h-3.5 ml-1 text-amber-400" />
+              )}
+            </h3>
+            {enrichStatus && (
+              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                enrichStatus.status === "running" ? "bg-violet-900 text-violet-300" :
+                enrichStatus.status === "completed" ? "bg-emerald-900 text-emerald-300" :
+                enrichStatus.status === "error" ? "bg-red-900 text-red-300" :
+                "bg-slate-800 text-slate-400"
+              }`}>
+                {enrichStatus.status?.toUpperCase()}
+              </span>
+            )}
+          </div>
+
+          {enrichMsg && (
+            <p className="text-xs text-slate-400">{enrichMsg}</p>
+          )}
+
+          {enrichStatus && enrichStatus.total > 0 && (
+            <>
+              {/* Progress bar */}
+              <div className="w-full bg-slate-800 rounded-full h-2">
+                <div
+                  className="bg-gradient-to-r from-violet-500 to-purple-500 h-2 rounded-full transition-all duration-500"
+                  style={{ width: `${enrichStatus.progress_percent || 0}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>
+                  Checked <strong className="text-white">{enrichStatus.done}</strong> / {enrichStatus.total} businesses
+                </span>
+                <span className="text-emerald-400 font-semibold">
+                  ✅ {enrichStatus.found} numbers found
+                </span>
+              </div>
+
+              {/* Currently searching */}
+              {enrichStatus.status === "running" && enrichStatus.current_name && (
+                <p className="text-xs text-slate-500">
+                  Searching <span className="text-slate-300">{enrichStatus.current_name}</span>
+                  {enrichStatus.current_source && (
+                    <span className="ml-1 text-violet-400">via {enrichStatus.current_source}</span>
+                  )}...
+                </p>
+              )}
+
+              {/* Recent finds */}
+              {enrichStatus.recent_found?.length > 0 && (
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  <p className="text-xs text-slate-500 font-semibold uppercase tracking-wide">Recently found:</p>
+                  {enrichStatus.recent_found.map((r, i) => (
+                    <div key={i} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-3 py-1.5 text-xs">
+                      <span className="text-slate-300 truncate max-w-[200px]">{r.name}</span>
+                      <span className="text-emerald-400 font-mono ml-2">{r.phone}</span>
+                      <span className="text-slate-600 ml-2 text-[10px]">{r.source}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Filter Row */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3">

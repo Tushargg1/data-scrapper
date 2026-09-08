@@ -30,11 +30,16 @@ from database import (
     get_distinct_states, get_distinct_niches,
     register_api_user, get_user_by_code, get_all_api_users,
     update_user_status, get_and_mark_unsent_batch, get_batch_delivery_stats,
+    get_businesses_without_phone,
 )
 from profiles_manager import create_new_profile, get_template_names, get_template
 from niches import ALL_NICHES, ALL_INDUSTRY_NICHES, LEAD_STATUSES
 from pincodes import get_states, get_pincodes_for_state
 from config import ADMIN_API_KEY, APP_NAME, APP_VERSION, API_PORT
+from phone_enricher import (
+    start_enrichment_thread, stop_enrichment,
+    get_enrich_status, is_enrichment_running,
+)
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -348,6 +353,64 @@ def profile_jobs(slug: str, x_api_key: str = Header(..., alias="X-API-Key")):
     profile = require_profile_key(slug, x_api_key)
     df = get_scraped_jobs_df(profile_id=profile["id"])
     return {"profile": profile["name"], "total_jobs": len(df), "jobs": df_to_records(df)}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PHONE ENRICHMENT  (per-profile key or admin key)
+# ════════════════════════════════════════════════════════════════════════════
+
+class EnrichRequest(BaseModel):
+    business_ids: list = None   # optional list of IDs; if omitted → all no-phone businesses
+
+
+@app.post("/api/profiles/{slug}/enrich-phones", tags=["Phone Enrichment"])
+def start_enrich(slug: str, body: EnrichRequest = None,
+                 x_api_key: str = Header(..., alias="X-API-Key")):
+    """
+    Start phone enrichment for businesses with no phone number.
+    Searches Google, JustDial, and Sulekha in the background.
+    Optional body: { "business_ids": [1, 2, 3] } to enrich specific businesses only.
+    """
+    profile = require_profile_key(slug, x_api_key)
+    if is_enrichment_running():
+        status = get_enrich_status()
+        return {
+            "success": False,
+            "message": "Enrichment already running.",
+            "status": status
+        }
+    business_ids = (body.business_ids if body else None) or None
+    # Count how many businesses will be enriched
+    no_phone = get_businesses_without_phone(profile["id"])
+    if business_ids:
+        count = len([b for b in no_phone if b["id"] in set(business_ids)])
+    else:
+        count = len(no_phone)
+    if count == 0:
+        return {"success": False, "message": "No businesses without phone numbers found."}
+    err = start_enrichment_thread(profile["id"], business_ids)
+    if err:
+        return {"success": False, "message": err}
+    return {
+        "success": True,
+        "message": f"Enrichment started for {count} businesses.",
+        "total": count
+    }
+
+
+@app.get("/api/profiles/{slug}/enrich-phones/status", tags=["Phone Enrichment"])
+def enrich_status(slug: str, x_api_key: str = Header(..., alias="X-API-Key")):
+    """Get current phone enrichment progress."""
+    require_profile_key(slug, x_api_key)
+    return get_enrich_status()
+
+
+@app.post("/api/profiles/{slug}/enrich-phones/stop", tags=["Phone Enrichment"])
+def stop_enrich(slug: str, x_api_key: str = Header(..., alias="X-API-Key")):
+    """Stop the running phone enrichment job."""
+    require_profile_key(slug, x_api_key)
+    stop_enrichment()
+    return {"success": True, "message": "Stop signal sent."}
 
 
 # ════════════════════════════════════════════════════════════════════════════

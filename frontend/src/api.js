@@ -142,6 +142,28 @@ export async function stopScraping() {
   });
 }
 
+// ── Phone Enrichment ─────────────────────────────────────────────────────────
+export async function startPhoneEnrichment(slug, apiKey, businessIds = null) {
+  return request(`/api/profiles/${slug}/enrich-phones`, {
+    method: "POST",
+    headers: { "X-API-Key": apiKey },
+    body: businessIds ? { business_ids: businessIds } : {}
+  });
+}
+
+export async function getEnrichmentStatus(slug, apiKey) {
+  return request(`/api/profiles/${slug}/enrich-phones/status`, {
+    headers: { "X-API-Key": apiKey }
+  });
+}
+
+export async function stopEnrichment(slug, apiKey) {
+  return request(`/api/profiles/${slug}/enrich-phones/stop`, {
+    method: "POST",
+    headers: { "X-API-Key": apiKey }
+  });
+}
+
 // ── Users & Approvals ───────────────────────────────────────────────────────
 export async function getApiUsers(status) {
   const query = status ? `?status=${status}` : "";
