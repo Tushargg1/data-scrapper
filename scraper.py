@@ -177,33 +177,42 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
             new_places = []
             for name, href in places_to_extract:
                 if href in existing_by_url:
-                    # Already in DB! Emit immediately without costly page load
                     ex = existing_by_url[href]
-                    item = {
-                        "Name": ex.get("name", name),
-                        "Rating": ex.get("rating", "N/A"),
-                        "Reviews": ex.get("reviews", "N/A"),
-                        "Phone": ex.get("phone", "N/A"),
-                        "Phone 1": ex.get("phone", "N/A"),
-                        "Phone 2": ex.get("phone_2", ""),
-                        "Phone 3": ex.get("phone_3", ""),
-                        "Website Available?": ex.get("website_available", "No"),
-                        "Website Link": ex.get("website_link", "N/A"),
-                        "Google Maps URL": href
-                    }
-                    results.append(item)
-                    if on_item_scraped:
-                        on_item_scraped(item)
+                    has_phone = ex.get("phone") not in ("N/A", "", None)
+                    has_web = ex.get("website_link") not in ("N/A", "", None)
+                    has_rating = ex.get("rating") not in ("N/A", "", None)
+
+                    # If already completely scraped, reuse it
+                    # But if phone, website, or rating were missing (e.g. from an earlier interrupted run), re-extract!
+                    if has_phone and has_web and has_rating:
+                        item = {
+                            "Name": ex.get("name", name),
+                            "Rating": ex.get("rating", "N/A"),
+                            "Reviews": ex.get("reviews", "N/A"),
+                            "Phone": ex.get("phone", "N/A"),
+                            "Phone 1": ex.get("phone", "N/A"),
+                            "Phone 2": ex.get("phone_2", ""),
+                            "Phone 3": ex.get("phone_3", ""),
+                            "Website Available?": ex.get("website_available", "No"),
+                            "Website Link": ex.get("website_link", "N/A"),
+                            "Google Maps URL": href
+                        }
+                        results.append(item)
+                        if on_item_scraped:
+                            on_item_scraped(item)
+                    else:
+                        new_places.append((name, href))
                 else:
                     new_places.append((name, href))
 
             if existing_by_url:
-                print(f"[SCRAPER] Reused {len(existing_by_url)} places already in DB (saved {len(existing_by_url)*1.8:.1f}s). Extracting {len(new_places)} new places...")
+                reused_count = len(places_to_extract) - len(new_places)
+                print(f"[SCRAPER] Reused {reused_count} fully scraped places. Extracting {len(new_places)} places...")
 
             if not new_places:
                 return pd.DataFrame(results)
 
-            # ── 3. Extract only genuinely NEW places ─────────────────────────
+            # ── 3. Extract genuinely NEW or previously incomplete places ─────
             detail_page = ctx.new_page()
             detail_page.route('**/*', _block_unneeded_resources)
 
@@ -216,13 +225,13 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                 rating, reviews = "N/A", "N/A"
 
                 try:
-                    detail_page.goto(href, wait_until='domcontentloaded', timeout=10000)
+                    detail_page.goto(href, wait_until='domcontentloaded', timeout=12000)
                     try:
-                        detail_page.locator('[data-item-id^="phone:tel:"], a[data-item-id="authority"]').first.wait_for(timeout=400)
+                        detail_page.locator('[data-item-id^="phone:tel:"], a[data-item-id="authority"], div[role="main"]').first.wait_for(timeout=1800)
                     except Exception:
                         pass
 
-                    # Extract Phone numbers (deduplicated by 10 digits to prevent duplicate formats)
+                    # Extract Phone numbers (deduplicated by 10 digits)
                     phones = []
                     seen_phone_digits = set()
 
@@ -271,20 +280,40 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                         if web_el.count() > 0:
                             website = "Yes"
                             website_link = web_el.first.get_attribute('href') or "N/A"
+                        else:
+                            web_btns = detail_page.locator('a[aria-label*="website" i], a[data-item-id*="authority"]').all()
+                            if web_btns:
+                                website = "Yes"
+                                website_link = web_btns[0].get_attribute('href') or "N/A"
                     except Exception:
                         pass
 
                     # Extract Rating & Reviews
                     try:
-                        panel_text = detail_page.locator('div[role="main"]').inner_text(timeout=300)
-                        for line in panel_text.split('\n'):
-                            line = line.strip()
-                            if '(' in line and ')' in line:
-                                prefix = line.split('(')[0].strip()
-                                if prefix.replace('.', '', 1).isdigit():
-                                    rating = prefix
-                                    reviews = line.split('(')[1].replace(')', '').strip()
-                                    break
+                        star = detail_page.locator('span[aria-label*="star" i]').first
+                        if star.count() > 0:
+                            lbl = star.get_attribute('aria-label') or ''
+                            parts = lbl.split()
+                            if parts and parts[0].replace('.', '', 1).isdigit():
+                                rating = parts[0]
+
+                        rev_btn = detail_page.locator('button[aria-label*="review" i]').first
+                        if rev_btn.count() > 0:
+                            rlbl = rev_btn.get_attribute('aria-label') or ''
+                            rm = re.search(r'([\d,]+)\s*reviews?', rlbl, re.I)
+                            if rm:
+                                reviews = rm.group(1)
+
+                        if rating == "N/A" or reviews == "N/A":
+                            panel_text = detail_page.locator('div[role="main"]').inner_text(timeout=200)
+                            for line in panel_text.split('\n'):
+                                line = line.strip()
+                                if '(' in line and ')' in line and rating == "N/A":
+                                    prefix = line.split('(')[0].strip()
+                                    if prefix.replace('.', '', 1).isdigit():
+                                        rating = prefix
+                                        reviews = line.split('(')[1].replace(')', '').strip()
+                                        break
                     except Exception:
                         pass
 

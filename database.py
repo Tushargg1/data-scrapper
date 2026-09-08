@@ -495,7 +495,7 @@ def get_existing_businesses_by_urls(profile_id: int, urls: list) -> dict:
 
 def save_single_business(state: str, pincode: str, niche: str,
                          item: dict, profile_id: int = 1) -> bool:
-    """Instantly save a single scraped business item to MySQL or SQLite."""
+    """Instantly save a single scraped business item to MySQL or SQLite, automatically updating missing/N/A fields if already exists."""
     maps_url = item.get("Google Maps URL", "")
     if not maps_url:
         return False
@@ -503,25 +503,58 @@ def save_single_business(state: str, pincode: str, niche: str,
     now = datetime.now().isoformat()
     inserted = False
     try:
-        cur = execute_db(conn, is_mysql, """
-            INSERT OR IGNORE INTO businesses
-                (profile_id, state, pincode, niche, name, rating, reviews,
-                 phone, phone_2, phone_3, website_available, website_link, maps_url, scraped_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            profile_id, state, pincode, niche,
-            item.get("Name", ""), item.get("Rating", ""), item.get("Reviews", ""),
-            item.get("Phone 1", item.get("Phone", "")),
-            item.get("Phone 2", ""),
-            item.get("Phone 3", ""),
-            item.get("Website Available?", ""),
-            item.get("Website Link", ""), maps_url, now
-        ))
-        if cur.rowcount > 0:
-            inserted = True
-        if not is_mysql: conn.commit()
+        p1 = item.get("Phone 1", item.get("Phone", ""))
+        p2 = item.get("Phone 2", "")
+        p3 = item.get("Phone 3", "")
+        web_avail = item.get("Website Available?", "")
+        web_link = item.get("Website Link", "")
+        rating = item.get("Rating", "")
+        reviews = item.get("Reviews", "")
+        name = item.get("Name", "")
+
+        if is_mysql:
+            sql = """
+                INSERT INTO businesses
+                    (profile_id, state, pincode, niche, name, rating, reviews,
+                     phone, phone_2, phone_3, website_available, website_link, maps_url, scraped_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    phone = IF((phone IS NULL OR phone='' OR phone='N/A') AND VALUES(phone) NOT IN ('N/A', ''), VALUES(phone), phone),
+                    phone_2 = IF((phone_2 IS NULL OR phone_2='') AND VALUES(phone_2) NOT IN ('N/A', ''), VALUES(phone_2), phone_2),
+                    website_available = IF(website_available IS NULL OR website_available='' OR website_available='No', VALUES(website_available), website_available),
+                    website_link = IF((website_link IS NULL OR website_link='' OR website_link='N/A') AND VALUES(website_link) NOT IN ('N/A', ''), VALUES(website_link), website_link),
+                    rating = IF((rating IS NULL OR rating='' OR rating='N/A') AND VALUES(rating) NOT IN ('N/A', ''), VALUES(rating), rating),
+                    reviews = IF((reviews IS NULL OR reviews='' OR reviews='N/A') AND VALUES(reviews) NOT IN ('N/A', ''), VALUES(reviews), reviews),
+                    updated_at = VALUES(scraped_at)
+            """
+            cur = conn.cursor()
+            cur.execute(sql, (
+                profile_id, state, pincode, niche,
+                name, rating, reviews,
+                p1, p2, p3,
+                web_avail, web_link, maps_url, now
+            ))
+            if cur.rowcount > 0:
+                inserted = True
+        else:
+            cur = execute_db(conn, is_mysql, """
+                INSERT OR REPLACE INTO businesses
+                    (profile_id, state, pincode, niche, name, rating, reviews,
+                     phone, phone_2, phone_3, website_available, website_link, maps_url, scraped_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                profile_id, state, pincode, niche,
+                name, rating, reviews,
+                p1, p2, p3,
+                web_avail, web_link, maps_url, now
+            ))
+            if cur.rowcount > 0:
+                inserted = True
+            conn.commit()
+
         return inserted
-    except Exception:
+    except Exception as e:
+        print(f"[DB] Error saving business: {e}")
         return False
     finally:
         conn.close()
