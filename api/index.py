@@ -509,3 +509,54 @@ def admin_update_user_status(user_code: str, body: UserStatusUpdateRequest):
 def admin_delivery_stats():
     """Get lead delivery and inventory stats."""
     return get_batch_delivery_stats()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PLAYWRIGHT SCRAPING ENGINE ENDPOINTS
+# ════════════════════════════════════════════════════════════════════════════
+
+class ScrapeStartRequest(BaseModel):
+    profile_id: int = 1
+    state: str
+    pincodes: list[str]
+    niches: list[str]
+    max_scrolls: int = 3
+
+
+@app.post("/api/scrape/start", tags=["Scraping Engine"])
+def api_start_scrape(body: ScrapeStartRequest):
+    """
+    Launch Google Maps Playwright scraper in the background.
+    Businesses are parsed with high-speed element clicking and
+    saved instantly into Aiven MySQL database without data loss.
+    """
+    from scrape_manager import start_scraping
+    res = start_scraping(
+        profile_id=body.profile_id,
+        state=body.state.strip(),
+        pincodes=[p.strip() for p in body.pincodes if p.strip()],
+        niches=[n.strip() for n in body.niches if n.strip()],
+        max_scrolls=body.max_scrolls
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
+
+
+@app.get("/api/scrape/status", tags=["Scraping Engine"])
+def api_scrape_status():
+    """
+    Get live progress, counters, current pincode/niche, and recent items
+    for the active or latest scraping job.
+    """
+    from scrape_manager import get_scrape_status
+    return get_scrape_status()
+
+
+@app.post("/api/scrape/stop", tags=["Scraping Engine"])
+def api_scrape_stop():
+    """Gracefully request the active scraper to stop."""
+    from scrape_manager import stop_scraping
+    res = stop_scraping()
+    return res
+
