@@ -8,6 +8,7 @@ import asyncio
 import re
 import os
 import subprocess
+import json
 import pandas as pd
 from playwright.sync_api import sync_playwright
 
@@ -59,13 +60,100 @@ def _block_unneeded_resources(route):
             pass
 
 
+def _parse_tbm_map_text(text: str) -> list:
+    """Parse Google Maps internal tbm=map search response in real-time."""
+    if text.startswith(")]}'"):
+        text = text[4:].strip()
+    elif "/*-secure-" in text:
+        text = text.split("\n", 1)[1].strip()
+
+    try:
+        data = json.loads(text)
+    except Exception:
+        return []
+
+    discovered = []
+    seen = set()
+
+    def scan(obj):
+        if isinstance(obj, list):
+            if len(obj) > 18 and isinstance(obj[11], str) and isinstance(obj[18], str) and len(obj[11]) > 2:
+                name = obj[11]
+                addr = obj[18]
+                if name not in seen:
+                    seen.add(name)
+                    s = json.dumps(obj)
+
+                    # Phone extraction & 10-digit normalization
+                    phones = re.findall(r'\"tel\:([^\"]+)\"', s)
+                    p1 = phones[0].replace("phone:tel:", "").strip() if phones else "N/A"
+                    p2 = phones[1].replace("phone:tel:", "").strip() if len(phones) > 1 and phones[1] != p1 else ""
+                    if p1 == "N/A":
+                        pm = re.findall(r'\"(\+?91[\d\s\-]{8,14}|011[\d\s\-]{7,12}|0[6-9]\d{9})\"', s)
+                        if pm: p1 = pm[0].strip()
+
+                    digits1 = re.sub(r'\D', '', p1)
+                    if len(digits1) == 10 and digits1[0] in '6789':
+                        p1 = '+91' + digits1
+                    elif len(digits1) == 11 and digits1.startswith('0'):
+                        p1 = '+91' + digits1[1:]
+
+                    if p2:
+                        digits2 = re.sub(r'\D', '', p2)
+                        if digits2[-10:] == digits1[-10:]:
+                            p2 = ""
+
+                    # Website
+                    web = "N/A"
+                    webs = re.findall(r'\"(https?\:\/\/(?!(?:www\.)?(?:google|gstatic|ggpht|schema\.org|lh3\.googleusercontent)\.com)[^\"]+)\"', s)
+                    if webs: web = webs[0]
+
+                    # Rating & Reviews
+                    rating = "N/A"
+                    reviews = "N/A"
+                    if len(obj) > 4 and isinstance(obj[4], list):
+                        if len(obj[4]) > 7 and obj[4][7] is not None:
+                            rating = str(obj[4][7])
+                        if len(obj[4]) > 8 and obj[4][8] is not None:
+                            reviews = str(obj[4][8])
+
+                    # Maps URL
+                    maps_url = ""
+                    if len(obj) > 14 and isinstance(obj[14], str):
+                        maps_url = obj[14]
+                    else:
+                        maps_url = f"https://www.google.com/maps/place/{name.replace(' ', '+')}"
+
+                    discovered.append({
+                        "Name": name,
+                        "Rating": rating,
+                        "Reviews": reviews,
+                        "Phone": p1,
+                        "Phone 1": p1,
+                        "Phone 2": p2,
+                        "Phone 3": "",
+                        "Website Available?": "Yes" if web != "N/A" else "No",
+                        "Website Link": web,
+                        "Address": addr,
+                        "Google Maps URL": maps_url
+                    })
+            for item in obj:
+                scan(item)
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                scan(v)
+
+    scan(data)
+    return discovered
+
+
 def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_scraped=None, should_stop=None, context=None, profile_id: int = 1) -> pd.DataFrame:
     """
-    Scrapes Google Maps for ALL businesses in a given niche and pincode.
-    - Continuous auto-scrolling with fast stagnation detection.
-    - Instant deduplication: businesses already in DB skip detail navigation (0ms vs 2000ms).
-    - Resource blocking (images/fonts/media) for ultra-low RAM and network overhead.
-    - Reusable Playwright context for zero browser restart overhead.
+    Hyper-speed Google Maps scraper:
+    - Intercepts Google's internal structured RPC responses (search?tbm=map) directly in memory.
+    - Yields complete places (Name, Phone, Website, Rating, Reviews, Address) in under 2 seconds.
+    - Zero separate detail page visits needed for intercepted places.
+    - Full fallback to DOM scraping if RPC interception is unavailable.
     """
     ensure_playwright_installed()
 
@@ -73,15 +161,34 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
     url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}"
 
     results = []
+    seen_names = set()
 
     def _execute(ctx):
         page = ctx.new_page()
         page.route('**/*', _block_unneeded_resources)
 
+        # ── 1. Intercept internal Google Maps data payloads ──────────────
+        def _on_response(resp):
+            if "search?tbm=map" in resp.url and resp.status == 200:
+                try:
+                    txt = resp.text()
+                    batch = _parse_tbm_map_text(txt)
+                    for item in batch:
+                        key = item["Name"].lower()
+                        if key not in seen_names:
+                            seen_names.add(key)
+                            results.append(item)
+                            if on_item_scraped:
+                                on_item_scraped(item)
+                except Exception:
+                    pass
+
+        page.on("response", _on_response)
+
         try:
             page.goto(url, timeout=25000, wait_until="domcontentloaded")
 
-            # Handle consent popups if any
+            # Handle consent popups
             try:
                 for sel in [
                     'button:has-text("Accept all")',
@@ -104,26 +211,29 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                 feed_selector = None
 
             if not feed_selector:
-                print(f"[SCRAPER] No feed found for '{query}'")
                 page.close()
-                return pd.DataFrame()
+                return pd.DataFrame(results)
 
             try:
-                page.locator(feed_selector).hover(timeout=1500)
+                page.locator(feed_selector).hover(timeout=1000)
             except Exception:
                 pass
 
-            # ── 1. Fast auto-scroll ──────────────────────────────────────────
+            # ── 2. Fast auto-scroll to trigger pagination RPCs ──────────────
             last_count = 0
             stagnant_count = 0
-            max_scroll_attempts = max(10, max_scrolls * 3)
+            max_scroll_attempts = max(8, max_scrolls * 2)
 
             for s in range(max_scroll_attempts):
                 if should_stop and should_stop():
                     break
 
-                page.mouse.wheel(0, 15000)
-                time.sleep(0.25)
+                try:
+                    page.locator(feed_selector).evaluate('el => el.scrollTop = el.scrollHeight')
+                except Exception:
+                    page.mouse.wheel(0, 8000)
+
+                time.sleep(0.4)
 
                 try:
                     end_marker = page.locator(
@@ -138,7 +248,7 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                 current_count = page.locator('a[href*="https://www.google.com/maps/place/"]').count()
                 if current_count == last_count:
                     stagnant_count += 1
-                    if stagnant_count >= 2:
+                    if stagnant_count >= 3:
                         break
                 else:
                     stagnant_count = 0
@@ -147,21 +257,30 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                 if current_count >= 120:
                     break
 
+            # If RPC interceptor captured results, we are done!
+            if results:
+                try:
+                    print(f"[SCRAPER] [HYPER-SPEED] Captured {len(results)} places via RPC for '{query}'")
+                except Exception:
+                    pass
+                try: page.close()
+                except Exception: pass
+                return pd.DataFrame(results)
+
+            # ── 3. Fallback: DOM extraction if RPC was missed ────────────────
             link_locators = page.locator('a[href*="https://www.google.com/maps/place/"]').all()
             places_to_extract = []
-            seen_names = set()
 
             for link_el in link_locators:
                 try:
                     name = link_el.get_attribute('aria-label')
                     href = link_el.get_attribute('href')
-                    if name and href and name not in seen_names:
-                        seen_names.add(name)
+                    if name and href and name.lower() not in seen_names:
+                        seen_names.add(name.lower())
                         places_to_extract.append((name, href))
                 except Exception:
                     continue
 
-            print(f"[SCRAPER] Found {len(places_to_extract)} places for '{query}'")
             page.close()
             import gc
             gc.collect()
@@ -169,54 +288,10 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
             if not places_to_extract:
                 return pd.DataFrame()
 
-            # ── 2. Instant Deduplication check against DB ─────────────────────
-            from database import get_existing_businesses_by_urls
-            all_urls = [h for _, h in places_to_extract]
-            existing_by_url = get_existing_businesses_by_urls(profile_id, all_urls)
-
-            new_places = []
-            for name, href in places_to_extract:
-                if href in existing_by_url:
-                    ex = existing_by_url[href]
-                    has_phone = ex.get("phone") not in ("N/A", "", None)
-                    has_web = ex.get("website_link") not in ("N/A", "", None)
-                    has_rating = ex.get("rating") not in ("N/A", "", None)
-
-                    # If already completely scraped, reuse it
-                    # But if phone, website, or rating were missing (e.g. from an earlier interrupted run), re-extract!
-                    if has_phone and has_web and has_rating:
-                        item = {
-                            "Name": ex.get("name", name),
-                            "Rating": ex.get("rating", "N/A"),
-                            "Reviews": ex.get("reviews", "N/A"),
-                            "Phone": ex.get("phone", "N/A"),
-                            "Phone 1": ex.get("phone", "N/A"),
-                            "Phone 2": ex.get("phone_2", ""),
-                            "Phone 3": ex.get("phone_3", ""),
-                            "Website Available?": ex.get("website_available", "No"),
-                            "Website Link": ex.get("website_link", "N/A"),
-                            "Google Maps URL": href
-                        }
-                        results.append(item)
-                        if on_item_scraped:
-                            on_item_scraped(item)
-                    else:
-                        new_places.append((name, href))
-                else:
-                    new_places.append((name, href))
-
-            if existing_by_url:
-                reused_count = len(places_to_extract) - len(new_places)
-                print(f"[SCRAPER] Reused {reused_count} fully scraped places. Extracting {len(new_places)} places...")
-
-            if not new_places:
-                return pd.DataFrame(results)
-
-            # ── 3. Extract genuinely NEW or previously incomplete places ─────
             detail_page = ctx.new_page()
             detail_page.route('**/*', _block_unneeded_resources)
 
-            for idx, (name, href) in enumerate(new_places):
+            for idx, (name, href) in enumerate(places_to_extract):
                 if should_stop and should_stop():
                     break
 
@@ -225,9 +300,9 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                 rating, reviews = "N/A", "N/A"
 
                 try:
-                    detail_page.goto(href, wait_until='domcontentloaded', timeout=12000)
+                    detail_page.goto(href, wait_until='domcontentloaded', timeout=10000)
                     try:
-                        detail_page.locator('[data-item-id^="phone:tel:"], a[data-item-id="authority"], div[role="main"]').first.wait_for(timeout=1800)
+                        detail_page.locator('[data-item-id^="phone:tel:"], a[data-item-id="authority"], div[role="main"]').first.wait_for(timeout=1500)
                     except Exception:
                         pass
 
