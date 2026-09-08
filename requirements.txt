@@ -4,3 +4,5 @@ pandas
 fastapi
 uvicorn[standard]
 pydantic
+pymysql
+cryptography
