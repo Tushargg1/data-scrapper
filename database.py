@@ -124,6 +124,27 @@ def init_db():
     _add_col("businesses",   "sent_at",           "TEXT DEFAULT NULL")
     _add_col("scraped_jobs", "profile_id",        "INTEGER NOT NULL DEFAULT 1")
 
+    # ── Seed default profile if empty ─────────────────────────────────────────
+    try:
+        cur.execute("SELECT COUNT(*) FROM profiles")
+        if cur.fetchone()[0] == 0:
+            now = datetime.now().isoformat()
+            default_niches = json.dumps([
+                "Hair Salon", "Beauty Parlour", "Beauty Salon", "Unisex Salon",
+                "Makeover", "Bridal Makeup Studio", "Makeup Artist", "Spa",
+                "Nail Salon", "Barbershop", "Men's Salon"
+            ])
+            cur.execute("""
+                INSERT INTO profiles (name, slug, description, icon, niches, api_key, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                "Beauty & Saloon", "beauty-saloon",
+                "Hair salons, beauty parlours, spas, makeup artists & grooming studios.",
+                "💇", default_niches, "beauty-saloon-default-key-2024", now
+            ))
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
