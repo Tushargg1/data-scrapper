@@ -59,13 +59,13 @@ def _block_unneeded_resources(route):
             pass
 
 
-def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_scraped=None, should_stop=None) -> pd.DataFrame:
+def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_scraped=None, should_stop=None, context=None, profile_id: int = 1) -> pd.DataFrame:
     """
     Scrapes Google Maps for ALL businesses in a given niche and pincode.
-    - Continuous auto-scrolling until end of list marker is reached.
-    - Resource blocking (images/fonts/media) for ultra-low RAM usage on Render free tier.
-    - Accurate detail extraction via direct place page navigation.
-    - Instant on_item_scraped callback for real-time MySQL persistence.
+    - Continuous auto-scrolling with fast stagnation detection.
+    - Instant deduplication: businesses already in DB skip detail navigation (0ms vs 2000ms).
+    - Resource blocking (images/fonts/media) for ultra-low RAM and network overhead.
+    - Reusable Playwright context for zero browser restart overhead.
     """
     ensure_playwright_installed()
 
@@ -74,86 +74,63 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
 
     results = []
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--disable-software-rasterizer',
-                '--blink-settings=imagesEnabled=false',
-                '--js-flags=--max-old-space-size=96'
-            ]
-        )
-        context = browser.new_context(
-            viewport={'width': 800, 'height': 600},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        )
-        page = context.new_page()
+    def _execute(ctx):
+        page = ctx.new_page()
         page.route('**/*', _block_unneeded_resources)
 
         try:
-            page.goto(url, timeout=30000, wait_until="domcontentloaded")
+            page.goto(url, timeout=25000, wait_until="domcontentloaded")
 
-            # Handle Google consent popups / redirects (critical on cloud/datacenter IPs)
+            # Handle consent popups if any
             try:
                 for sel in [
                     'button:has-text("Accept all")',
                     'button:has-text("I agree")',
                     'form[action*="consent"] button',
-                    'button[aria-label*="Accept all"]',
-                    'button[aria-label*="Accept"]'
+                    'button[aria-label*="Accept all"]'
                 ]:
                     btn = page.locator(sel).first
-                    if btn.is_visible(timeout=1000):
+                    if btn.is_visible(timeout=500):
                         btn.click()
-                        time.sleep(1)
+                        time.sleep(0.5)
                         break
             except Exception:
                 pass
 
             feed_selector = 'div[role="feed"]'
             try:
-                page.wait_for_selector(feed_selector, timeout=10000)
+                page.wait_for_selector(feed_selector, timeout=8000)
             except Exception:
                 feed_selector = None
 
             if not feed_selector:
                 print(f"[SCRAPER] No feed found for '{query}'")
-                browser.close()
+                page.close()
                 return pd.DataFrame()
 
-            # Hover feed to enable mouse wheel scrolling
             try:
-                page.locator(feed_selector).hover(timeout=2000)
+                page.locator(feed_selector).hover(timeout=1500)
             except Exception:
                 pass
 
-            # ── 1. Auto-scroll to load EVERY business in this pincode ────────
+            # ── 1. Fast auto-scroll ──────────────────────────────────────────
             last_count = 0
             stagnant_count = 0
-            max_scroll_attempts = max(12, max_scrolls * 4)
+            max_scroll_attempts = max(10, max_scrolls * 3)
 
             for s in range(max_scroll_attempts):
                 if should_stop and should_stop():
                     break
 
                 page.mouse.wheel(0, 15000)
-                time.sleep(0.4)
+                time.sleep(0.25)
 
-                # Check if Google's end marker is reached
                 try:
                     end_marker = page.locator(
                         'span:has-text("You\'ve reached the end of the list"), '
                         'div:has-text("You\'ve reached the end of the list")'
                     )
-                    if end_marker.count() > 0 and end_marker.first.is_visible(timeout=100):
+                    if end_marker.count() > 0 and end_marker.first.is_visible(timeout=50):
                         break
                 except Exception:
                     pass
@@ -161,16 +138,15 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                 current_count = page.locator('a[href*="https://www.google.com/maps/place/"]').count()
                 if current_count == last_count:
                     stagnant_count += 1
-                    if stagnant_count >= 3:
+                    if stagnant_count >= 2:
                         break
                 else:
                     stagnant_count = 0
                     last_count = current_count
 
-                if current_count >= 120:  # Google's hard cap per query
+                if current_count >= 120:
                     break
 
-            # Collect all place links from the feed
             link_locators = page.locator('a[href*="https://www.google.com/maps/place/"]').all()
             places_to_extract = []
             seen_names = set()
@@ -185,16 +161,53 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                 except Exception:
                     continue
 
-            print(f"[SCRAPER] Found {len(places_to_extract)} places in feed for '{query}'. Closing search feed to free RAM...")
+            print(f"[SCRAPER] Found {len(places_to_extract)} places for '{query}'")
             page.close()
             import gc
             gc.collect()
 
-            # ── 2. Dedicated lightweight detail extractor page ───────────────
-            detail_page = context.new_page()
+            if not places_to_extract:
+                return pd.DataFrame()
+
+            # ── 2. Instant Deduplication check against DB ─────────────────────
+            from database import get_existing_businesses_by_urls
+            all_urls = [h for _, h in places_to_extract]
+            existing_by_url = get_existing_businesses_by_urls(profile_id, all_urls)
+
+            new_places = []
+            for name, href in places_to_extract:
+                if href in existing_by_url:
+                    # Already in DB! Emit immediately without costly page load
+                    ex = existing_by_url[href]
+                    item = {
+                        "Name": ex.get("name", name),
+                        "Rating": ex.get("rating", "N/A"),
+                        "Reviews": ex.get("reviews", "N/A"),
+                        "Phone": ex.get("phone", "N/A"),
+                        "Phone 1": ex.get("phone", "N/A"),
+                        "Phone 2": ex.get("phone_2", ""),
+                        "Phone 3": ex.get("phone_3", ""),
+                        "Website Available?": ex.get("website_available", "No"),
+                        "Website Link": ex.get("website_link", "N/A"),
+                        "Google Maps URL": href
+                    }
+                    results.append(item)
+                    if on_item_scraped:
+                        on_item_scraped(item)
+                else:
+                    new_places.append((name, href))
+
+            if existing_by_url:
+                print(f"[SCRAPER] Reused {len(existing_by_url)} places already in DB (saved {len(existing_by_url)*1.8:.1f}s). Extracting {len(new_places)} new places...")
+
+            if not new_places:
+                return pd.DataFrame(results)
+
+            # ── 3. Extract only genuinely NEW places ─────────────────────────
+            detail_page = ctx.new_page()
             detail_page.route('**/*', _block_unneeded_resources)
 
-            for idx, (name, href) in enumerate(places_to_extract):
+            for idx, (name, href) in enumerate(new_places):
                 if should_stop and should_stop():
                     break
 
@@ -203,13 +216,13 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                 rating, reviews = "N/A", "N/A"
 
                 try:
-                    detail_page.goto(href, wait_until='domcontentloaded', timeout=12000)
+                    detail_page.goto(href, wait_until='domcontentloaded', timeout=10000)
                     try:
-                        detail_page.locator('[data-item-id^="phone:tel:"], a[data-item-id="authority"]').first.wait_for(timeout=1200)
+                        detail_page.locator('[data-item-id^="phone:tel:"], a[data-item-id="authority"]').first.wait_for(timeout=400)
                     except Exception:
                         pass
 
-                    # Extract Phone numbers (collect up to 3)
+                    # Extract Phone numbers
                     phones = []
                     try:
                         p_els = detail_page.locator('[data-item-id^="phone:tel:"]').all()
@@ -219,14 +232,15 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                             if num and num not in phones:
                                 phones.append(num)
 
-                        btns = detail_page.locator('button[aria-label*="Phone"], button[aria-label*="phone"]').all()
-                        for btn in btns:
-                            lbl = btn.get_attribute('aria-label') or ''
-                            matches = re.findall(r'[\+\d][\d\s\-\(\)]{7,}', lbl)
-                            for m in matches:
-                                m_clean = m.strip()
-                                if len(m_clean) >= 8 and m_clean not in phones:
-                                    phones.append(m_clean)
+                        if not phones:
+                            btns = detail_page.locator('button[aria-label*="Phone"], button[aria-label*="phone"]').all()
+                            for btn in btns:
+                                lbl = btn.get_attribute('aria-label') or ''
+                                matches = re.findall(r'[\+\d][\d\s\-\(\)]{7,}', lbl)
+                                for m in matches:
+                                    m_clean = m.strip()
+                                    if len(m_clean) >= 8 and m_clean not in phones:
+                                        phones.append(m_clean)
                     except Exception:
                         pass
 
@@ -240,17 +254,12 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                         if web_el.count() > 0:
                             website = "Yes"
                             website_link = web_el.first.get_attribute('href') or "N/A"
-                        else:
-                            web_btns = detail_page.locator('a[aria-label*="website"], a[aria-label*="Website"]').all()
-                            if web_btns:
-                                website = "Yes"
-                                website_link = web_btns[0].get_attribute('href') or "N/A"
                     except Exception:
                         pass
 
                     # Extract Rating & Reviews
                     try:
-                        panel_text = detail_page.locator('div[role="main"]').inner_text(timeout=500)
+                        panel_text = detail_page.locator('div[role="main"]').inner_text(timeout=300)
                         for line in panel_text.split('\n'):
                             line = line.strip()
                             if '(' in line and ')' in line:
@@ -278,25 +287,44 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                     "Google Maps URL": href
                 }
                 results.append(item)
-
                 if on_item_scraped:
-                    try:
-                        on_item_scraped(item)
-                    except Exception:
-                        pass
+                    on_item_scraped(item)
 
-            try:
-                detail_page.close()
-            except Exception:
-                pass
+            detail_page.close()
+            gc.collect()
 
         except Exception as e:
-            browser.close()
-            raise e
-        finally:
-            try:
-                browser.close()
-            except Exception:
-                pass
+            print(f"[SCRAPER] Error in query '{query}': {e}")
+            try: page.close()
+            except Exception: pass
 
-    return pd.DataFrame(results)
+        return pd.DataFrame(results)
+
+    if context is not None:
+        return _execute(context)
+    else:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-software-rasterizer',
+                    '--blink-settings=imagesEnabled=false',
+                    '--js-flags=--max-old-space-size=96'
+                ]
+            )
+            ctx = browser.new_context(
+                viewport={'width': 800, 'height': 600},
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                )
+            )
+            try:
+                return _execute(ctx)
+            finally:
+                browser.close()

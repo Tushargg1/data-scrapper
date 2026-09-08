@@ -466,6 +466,32 @@ def save_businesses(state: str, pincode: str, niche: str,
     finally:
         conn.close()
 
+def get_existing_businesses_by_urls(profile_id: int, urls: list) -> dict:
+    """Returns dict of {maps_url: row_dict} for URLs already saved in DB for this profile."""
+    if not urls:
+        return {}
+    conn, is_mysql = get_connection()
+    result = {}
+    try:
+        # Check in chunks of 100
+        for i in range(0, len(urls), 100):
+            chunk = urls[i:i+100]
+            placeholders = ",".join(["?"] * len(chunk))
+            query = f"SELECT * FROM businesses WHERE profile_id=? AND maps_url IN ({placeholders})"
+            params = [profile_id] + chunk
+            cur = execute_db(conn, is_mysql, query, params)
+            rows = cur.fetchall()
+            for r in rows:
+                d = dict(r)
+                m_url = d.get("maps_url", "")
+                if m_url:
+                    result[m_url] = d
+        return result
+    except Exception:
+        return {}
+    finally:
+        conn.close()
+
 
 def save_single_business(state: str, pincode: str, niche: str,
                          item: dict, profile_id: int = 1) -> bool:

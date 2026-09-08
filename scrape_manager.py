@@ -70,62 +70,89 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
         })
 
     try:
-        for pc in pincodes:
-            if stop_scrape_event.is_set():
-                break
-            for niche in niches:
-                if stop_scrape_event.is_set():
-                    break
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-software-rasterizer',
+                    '--blink-settings=imagesEnabled=false',
+                    '--js-flags=--max-old-space-size=96'
+                ]
+            )
+            context = browser.new_context(
+                viewport={'width': 800, 'height': 600},
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                )
+            )
 
-                with scrape_lock:
-                    current_scrape_job["current_pincode"] = pc
-                    current_scrape_job["current_niche"] = niche
+            try:
+                for pc in pincodes:
+                    if stop_scrape_event.is_set():
+                        break
+                    for niche in niches:
+                        if stop_scrape_event.is_set():
+                            break
 
-                def on_item_scraped(item):
-                    with scrape_lock:
-                        current_scrape_job["scraped"] += 1
-                        if item.get("Phone") not in ["N/A", ""]:
-                            current_scrape_job["phones"] += 1
-                        if item.get("Website Available?") == "Yes":
-                            current_scrape_job["webs"] += 1
-
-                        # Store in recent items feed (up to 25 items)
-                        current_scrape_job["recent_items"].insert(0, {
-                            "name": item.get("Name", "N/A"),
-                            "phone": item.get("Phone 1", item.get("Phone", "N/A")),
-                            "phone_2": item.get("Phone 2", ""),
-                            "website": item.get("Website Link", ""),
-                            "rating": item.get("Rating", "N/A"),
-                            "reviews": item.get("Reviews", "N/A"),
-                            "pincode": pc,
-                            "niche": niche
-                        })
-                        if len(current_scrape_job["recent_items"]) > 25:
-                            current_scrape_job["recent_items"].pop()
-
-                    # Save immediately to MySQL / SQLite
-                    is_new = save_single_business(state, pc, niche, item, profile_id)
-                    if is_new:
                         with scrape_lock:
-                            current_scrape_job["saved"] += 1
+                            current_scrape_job["current_pincode"] = pc
+                            current_scrape_job["current_niche"] = niche
 
-                try:
-                    df = scrape_google_maps(
-                        niche=niche,
-                        pincode=pc,
-                        max_scrolls=max_scrolls,
-                        on_item_scraped=on_item_scraped,
-                        should_stop=lambda: stop_scrape_event.is_set()
-                    )
-                    count = len(df) if df is not None and not df.empty else 0
-                    mark_as_scraped(state, pc, niche, count, profile_id)
-                except Exception as ex:
-                    print(f"[SCRAPER] Error on {niche} in {pc}: {ex}")
-                    with scrape_lock:
-                        current_scrape_job["error"] = f"{pc} ({niche}): {str(ex)[:150]}"
+                        def on_item_scraped(item):
+                            with scrape_lock:
+                                current_scrape_job["scraped"] += 1
+                                if item.get("Phone") not in ["N/A", ""]:
+                                    current_scrape_job["phones"] += 1
+                                if item.get("Website Available?") == "Yes":
+                                    current_scrape_job["webs"] += 1
 
-                with scrape_lock:
-                    current_scrape_job["done_jobs"] += 1
+                                current_scrape_job["recent_items"].insert(0, {
+                                    "name": item.get("Name", "N/A"),
+                                    "phone": item.get("Phone 1", item.get("Phone", "N/A")),
+                                    "phone_2": item.get("Phone 2", ""),
+                                    "website": item.get("Website Link", ""),
+                                    "rating": item.get("Rating", "N/A"),
+                                    "reviews": item.get("Reviews", "N/A"),
+                                    "pincode": pc,
+                                    "niche": niche
+                                })
+                                if len(current_scrape_job["recent_items"]) > 25:
+                                    current_scrape_job["recent_items"].pop()
+
+                            is_new = save_single_business(state, pc, niche, item, profile_id)
+                            if is_new:
+                                with scrape_lock:
+                                    current_scrape_job["saved"] += 1
+
+                        try:
+                            df = scrape_google_maps(
+                                niche=niche,
+                                pincode=pc,
+                                max_scrolls=max_scrolls,
+                                on_item_scraped=on_item_scraped,
+                                should_stop=lambda: stop_scrape_event.is_set(),
+                                context=context,
+                                profile_id=profile_id
+                            )
+                            count = len(df) if df is not None and not df.empty else 0
+                            mark_as_scraped(state, pc, niche, count, profile_id)
+                        except Exception as ex:
+                            print(f"[SCRAPER] Error on {niche} in {pc}: {ex}")
+                            with scrape_lock:
+                                current_scrape_job["error"] = f"{pc} ({niche}): {str(ex)[:150]}"
+
+                        with scrape_lock:
+                            current_scrape_job["done_jobs"] += 1
+
+            finally:
+                browser.close()
 
         with scrape_lock:
             current_scrape_job["status"] = "stopped" if stop_scrape_event.is_set() else "completed"
