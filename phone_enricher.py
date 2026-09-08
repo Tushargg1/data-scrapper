@@ -1,4 +1,4 @@
-﻿"""
+"""
 Phone Enrichment Engine
 Searches Google Search, JustDial, and Web Directories to find phone numbers
 for businesses that have no number on Google Maps.
@@ -269,10 +269,16 @@ def run_phone_enrichment(profile_id: int, business_ids: list = None):
 
                     # Save to DB immediately
                     if found_phone:
+                        found_digits = re.sub(r'\D', '', found_phone)[-10:]
+                        p1_digits = re.sub(r'\D', '', existing_phone)[-10:]
+
                         if not existing_phone or existing_phone in ("N/A", ""):
                             update_business_phone(biz_id, phone=found_phone, phone_2=None)
-                        else:
+                        elif found_digits and found_digits != p1_digits:
+                            # Genuinely different secondary number!
                             update_business_phone(biz_id, phone=None, phone_2=found_phone)
+                        else:
+                            print(f"[ENRICH] {found_phone} matches existing phone, skipping phone_2 duplicate.")
 
                         with _enrich_lock:
                             _enrich_state["found"] += 1

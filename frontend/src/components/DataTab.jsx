@@ -330,7 +330,24 @@ export default function DataTab({ activeProfile }) {
                       ) : (
                         <span className="text-slate-600">—</span>
                       )}
-                      {b.phone_2 && <div className="text-[10px] text-slate-500">{b.phone_2}</div>}
+                      {b.phone_2 && b.phone_2 !== "N/A" && 
+                       (b.phone?.replace(/\D/g, '').slice(-10) !== b.phone_2?.replace(/\D/g, '').slice(-10)) && (
+                        <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+                          <span className="text-slate-500 text-[9px] font-sans uppercase">Alt:</span>
+                          <a href={`tel:${b.phone_2}`} className="text-teal-400 hover:underline">
+                            {b.phone_2}
+                          </a>
+                        </div>
+                      )}
+                      {b.phone_3 && b.phone_3 !== "N/A" && 
+                       (b.phone?.replace(/\D/g, '').slice(-10) !== b.phone_3?.replace(/\D/g, '').slice(-10)) && (
+                        <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+                          <span className="text-slate-500 text-[9px] font-sans uppercase">Alt 2:</span>
+                          <a href={`tel:${b.phone_3}`} className="text-teal-400 hover:underline">
+                            {b.phone_3}
+                          </a>
+                        </div>
+                      )}
                     </td>
                     <td className="p-3.5 text-amber-400">
                       ★ {b.rating || "N/A"} <span className="text-slate-500 font-normal">({b.reviews || 0})</span>

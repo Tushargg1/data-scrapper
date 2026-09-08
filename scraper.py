@@ -222,25 +222,42 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                     except Exception:
                         pass
 
-                    # Extract Phone numbers
+                    # Extract Phone numbers (deduplicated by 10 digits to prevent duplicate formats)
                     phones = []
+                    seen_phone_digits = set()
+
+                    def _add_phone(candidate: str):
+                        cand_clean = candidate.strip()
+                        raw_digits = re.sub(r'\D', '', cand_clean)
+                        sig = raw_digits[-10:] if len(raw_digits) >= 10 else raw_digits
+                        if len(sig) >= 7 and sig not in seen_phone_digits:
+                            seen_phone_digits.add(sig)
+                            if len(raw_digits) == 10 and raw_digits[0] in '6789':
+                                phones.append('+91' + raw_digits)
+                            else:
+                                phones.append(cand_clean)
+
                     try:
                         p_els = detail_page.locator('[data-item-id^="phone:tel:"]').all()
                         for p_el in p_els:
                             pid = p_el.get_attribute('data-item-id') or ''
                             num = pid.replace('phone:tel:', '').strip()
-                            if num and num not in phones:
-                                phones.append(num)
+                            if num:
+                                _add_phone(num)
 
-                        if not phones:
-                            btns = detail_page.locator('button[aria-label*="Phone"], button[aria-label*="phone"]').all()
-                            for btn in btns:
-                                lbl = btn.get_attribute('aria-label') or ''
-                                matches = re.findall(r'[\+\d][\d\s\-\(\)]{7,}', lbl)
-                                for m in matches:
-                                    m_clean = m.strip()
-                                    if len(m_clean) >= 8 and m_clean not in phones:
-                                        phones.append(m_clean)
+                        btns = detail_page.locator('button[aria-label*="Phone" i], a[href^="tel:"]').all()
+                        for btn in btns:
+                            lbl = (btn.get_attribute('aria-label') or '') + ' ' + (btn.get_attribute('href') or '')
+                            for m in re.findall(r'[\+\d][\d\s\-\(\)]{7,}', lbl):
+                                _add_phone(m)
+
+                        if len(phones) < 3:
+                            try:
+                                panel_html = detail_page.locator('div[role="main"]').inner_text(timeout=200)
+                                for m in re.findall(r'(?:(?:\+91[\s\-]?)?[6-9]\d{4}[\s\-]?\d{5}|0\d{2,4}[\s\-]?\d{6,8})', panel_html):
+                                    _add_phone(m)
+                            except Exception:
+                                pass
                     except Exception:
                         pass
 
