@@ -82,10 +82,13 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
+                '--disable-software-rasterizer',
+                '--blink-settings=imagesEnabled=false',
+                '--js-flags=--max-old-space-size=96'
             ]
         )
         context = browser.new_context(
-            viewport={'width': 1280, 'height': 800},
+            viewport={'width': 800, 'height': 600},
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -182,7 +185,10 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                 except Exception:
                     continue
 
-            print(f"[SCRAPER] Found {len(places_to_extract)} places in feed for '{query}'. Extracting details...")
+            print(f"[SCRAPER] Found {len(places_to_extract)} places in feed for '{query}'. Closing search feed to free RAM...")
+            page.close()
+            import gc
+            gc.collect()
 
             # ── 2. Dedicated lightweight detail extractor page ───────────────
             detail_page = context.new_page()
