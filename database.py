@@ -555,12 +555,12 @@ def get_businesses(profile_id: int = 1, state: str = None, pincode: str = None,
         query += " ORDER BY scraped_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
-        if is_mysql:
-            m_query = query.replace("?", "%s")
-            df = pd.read_sql_query(m_query, conn, params=params)
-        else:
-            df = pd.read_sql_query(query, conn, params=params)
-        return df
+        cur = execute_db(conn, is_mysql, query, params)
+        rows = cur.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        records = [dict(r) for r in rows]
+        return pd.DataFrame(records)
     finally:
         conn.close()
 
@@ -585,10 +585,12 @@ def get_all_businesses_df(profile_id: int = None) -> pd.DataFrame:
             query = "SELECT * FROM businesses ORDER BY state,pincode,niche,name"
             params = []
 
-        if is_mysql:
-            query = query.replace("?", "%s")
-
-        return pd.read_sql_query(query, conn, params=params)
+        cur = execute_db(conn, is_mysql, query, params)
+        rows = cur.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        records = [dict(r) for r in rows]
+        return pd.DataFrame(records)
     finally:
         conn.close()
 
