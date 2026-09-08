@@ -85,12 +85,19 @@ def df_to_records(df: pd.DataFrame) -> list:
 # ── Root ──────────────────────────────────────────────────────────────────────
 @app.get("/", tags=["Info"])
 def root():
+    from database import get_connection
+    try:
+        _, is_mysql = get_connection()
+        db_engine = "mysql" if is_mysql else "sqlite"
+    except Exception:
+        db_engine = "unknown"
     return {
         "app": APP_NAME,
         "version": APP_VERSION,
         "docs": "/docs",
         "admin_endpoints": "/api/profiles",
         "status": "running",
+        "db_engine": db_engine,
     }
 
 
