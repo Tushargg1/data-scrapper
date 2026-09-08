@@ -160,7 +160,12 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
       pollIntervalRef.current = setInterval(fetchStatus, 1200);
       fetchStatus();
     } catch (err) {
-      setErrorMsg(err.message || "Failed to start scraper.");
+      if (err.message && err.message.includes("already running")) {
+        setErrorMsg("Connected to active running scrape job.");
+        fetchStatus();
+      } else {
+        setErrorMsg(err.message || "Failed to start scraper.");
+      }
     } finally {
       setIsStarting(false);
     }
@@ -235,36 +240,56 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
       </div>
 
       {errorMsg && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{errorMsg}</span>
+        <div className={`p-4 rounded-xl text-xs flex items-center justify-between gap-2 ${
+          errorMsg.includes("Connected") ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300" : "bg-rose-500/10 border border-rose-500/30 text-rose-400"
+        }`}>
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          <button onClick={() => setErrorMsg("")} className="text-slate-400 hover:text-white text-xs">✕</button>
         </div>
       )}
 
-      {/* Live Monitor Widget (Shown if running or recently active) */}
-      {jobStatus && (jobStatus.status === "running" || jobStatus.scraped > 0) && (
-        <div className="bg-gradient-to-b from-slate-900 to-slate-950 border border-emerald-500/30 rounded-2xl p-6 shadow-2xl space-y-6 relative overflow-hidden">
+      {/* Live Monitor Widget (ALWAYS SHOWN) */}
+      {jobStatus && (
+        <div className={`bg-gradient-to-b from-slate-900 to-slate-950 border rounded-2xl p-6 shadow-2xl space-y-6 relative overflow-hidden transition-all ${
+          isRunning ? "border-emerald-500/50 shadow-emerald-500/10" : "border-slate-800"
+        }`}>
           <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none"></div>
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div className="flex items-center gap-3">
-              <span className={`flex h-3 w-3 relative ${isRunning ? "animate-pulse" : ""}`}>
-                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isRunning ? "bg-emerald-400" : "bg-slate-500"}`}></span>
-                <span className={`relative inline-flex rounded-full h-3 w-3 ${isRunning ? "bg-emerald-500" : "bg-slate-600"}`}></span>
+              <span className={`flex h-3.5 w-3.5 relative ${isRunning ? "animate-pulse" : ""}`}>
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isRunning ? "bg-emerald-400" : "bg-transparent"}`}></span>
+                <span className={`relative inline-flex rounded-full h-3.5 w-3.5 ${isRunning ? "bg-emerald-500" : "bg-slate-600"}`}></span>
               </span>
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  Engine Status: <span className="capitalize text-emerald-400">{jobStatus.status}</span>
+                  Engine Status:{" "}
+                  <span className={`capitalize font-mono ${isRunning ? "text-emerald-400 font-bold" : "text-slate-400"}`}>
+                    {jobStatus.status === "running" ? "⚡ Actively Scraping Google Maps Live" : jobStatus.status}
+                  </span>
                 </h3>
-                <p className="text-[11px] text-slate-400">
-                  Target: {jobStatus.current_niche || "Idle"} in {jobStatus.current_pincode || "Idle"} ({jobStatus.state})
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {isRunning 
+                    ? `Current Target: "${jobStatus.current_niche}" in Pincode: ${jobStatus.current_pincode} (${jobStatus.state})`
+                    : "Zero-data-loss active: Every business is instantly committed to Aiven MySQL."
+                  }
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-4 text-xs font-mono text-slate-400">
+            <div className="flex items-center gap-3 text-xs font-mono text-slate-400">
               <span>Time: <strong className="text-white">{jobStatus.elapsed_seconds || 0}s</strong></span>
               <span>Progress: <strong className="text-emerald-400">{jobStatus.done_jobs || 0} / {jobStatus.total_jobs || 0} ({jobStatus.progress_percent || 0}%)</strong></span>
+              <button
+                onClick={fetchStatus}
+                title="Refresh Live Status"
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700 transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
 

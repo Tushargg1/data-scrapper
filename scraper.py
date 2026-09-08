@@ -37,21 +37,39 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 3, on_item_s
         page = context.new_page()
 
         try:
-            page.goto(url, timeout=30000)
-            feed_selector = 'div[role="feed"]'
+            page.goto(url, timeout=35000, wait_until="domcontentloaded")
 
+            # Handle Google consent popups (critical on cloud/datacenter IPs)
+            try:
+                for sel in ['button:has-text("Accept all")', 'button:has-text("I agree")', 'form[action*="consent"] button', 'button[aria-label*="Accept"]']:
+                    btn = page.locator(sel).first
+                    if btn.is_visible(timeout=1500):
+                        btn.click()
+                        time.sleep(1)
+                        break
+            except Exception:
+                pass
+
+            feed_selector = 'div[role="feed"]'
             try:
                 page.wait_for_selector(feed_selector, timeout=12000)
             except Exception:
-                # No results page (e.g. pincode has no matches)
+                feed_selector = None
+
+            if not feed_selector:
+                # Check if search returned 0 results or single place
+                print(f"[SCRAPER] No results feed found for '{query}'")
                 browser.close()
                 return pd.DataFrame()
 
             # Scroll to load more results
             for _ in range(max_scrolls):
-                page.locator(feed_selector).hover()
-                page.mouse.wheel(0, 15000)
-                time.sleep(0.8)
+                try:
+                    page.locator('div[role="feed"]').hover()
+                    page.mouse.wheel(0, 15000)
+                    time.sleep(0.8)
+                except Exception:
+                    break
 
             # Collect place links from the feed
             link_locators = page.locator('a[href*="https://www.google.com/maps/place/"]').all()
