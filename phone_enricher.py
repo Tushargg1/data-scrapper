@@ -1,6 +1,6 @@
 ﻿"""
 Phone Enrichment Engine
-Searches Google Search, JustDial, and Sulekha to find phone numbers
+Searches Google Search, JustDial, and Web Directories to find phone numbers
 for businesses that have no number on Google Maps.
 """
 import re
@@ -9,45 +9,77 @@ import time
 import threading
 from datetime import datetime
 
-# -- Indian phone number patterns -----------------------------------------------
-_PHONE_RE = re.compile(
-    r"""(?:
-        (?:\+91[\s\-]?)?
-        (?:0)?
-        [6-9]\d{9}
-    |
-        (?:\+91[\s\-]?)?
-        0?1[1-9]\d{8}
-    |
-        \+91[\s\-]\d{2,5}[\s\-]\d{3,8}
-    )""",
-    re.VERBOSE
-)
-
-def _extract_indian_phones(text: str) -> list:
-    raw = _PHONE_RE.findall(text)
-    cleaned = []
-    seen = set()
-    for p in raw:
-        digits = re.sub(r'\D', '', p)
-        if len(digits) == 12 and digits.startswith('91'):
-            digits = digits[2:]
-        elif len(digits) == 11 and digits.startswith('0'):
-            digits = digits[1:]
-        if len(digits) == 10 and digits not in seen:
-            seen.add(digits)
-            cleaned.append('+91' + digits)
-    return cleaned
+# -- Phone Number Normalization ------------------------------------------------
+def _normalize_phone(raw: str) -> str:
+    """Normalize extracted digits into clean Indian format: +91XXXXXXXXXX"""
+    digits = re.sub(r'\D', '', raw)
+    if len(digits) == 12 and digits.startswith('91'):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith('0'):
+        digits = digits[1:]
+    if len(digits) == 10 and digits[0] in '6789':
+        return '+91' + digits
+    if len(digits) >= 10:
+        return '+91' + digits[-10:]
+    return ''
 
 
 def _clean_for_search(text: str) -> str:
+    """Clean query string for search engine."""
     return re.sub(r'[^\w\s]', ' ', text).strip()
 
 
-# -- Global enrichment state ---------------------------------------------------
+# -- Contextual Phone Extraction from HTML --------------------------------------
+def extract_phone_from_html(html: str) -> str | None:
+    """
+    Extracts authentic Indian business phone numbers from page HTML.
+    Uses contextual proximity to keywords (appointment, call, phone, etc.)
+    and structured attributes to avoid false positives.
+    """
+    # 1. Direct tel: links
+    tel_matches = re.findall(r'href=[\"\']tel:([^\"\']+)[\"\']', html, re.I)
+    for m in tel_matches:
+        norm = _normalize_phone(m)
+        if norm:
+            return norm
+
+    # 2. Number in brackets/quotes often found in business descriptions: e.g. [+91 70118 52232]
+    bracket_matches = re.findall(r'\[(?:\+91[\s\-]?)?(?:0)?[6-9]\d{4}[\s\-]?\d{5}\]', html)
+    for m in bracket_matches:
+        norm = _normalize_phone(m)
+        if norm:
+            return norm
+
+    # 3. Contextual proximity: phone number within 60 chars of contact keywords
+    keywords = [
+        "phone", "tel", "call", "contact", "mobile",
+        "appointment", "book", "karein", "whatsapp", "inquiry"
+    ]
+    kw_pattern = "|".join(keywords)
+    phone_re = r'((?:\+91[\s\-]?)?(?:0)?[6-9]\d{4}[\s\-]?\d{5}|011[\s\-]?\d{7,8})'
+    pattern = rf'(?:{kw_pattern})[\s\:\-\w\"\'\,\.\[\]]{{0,60}}{phone_re}'
+    
+    near_matches = re.findall(pattern, html, re.I)
+    for m in near_matches:
+        norm = _normalize_phone(m)
+        if norm:
+            return norm
+
+    # 4. Standard phone pattern in the text body
+    clean_text = re.sub(r'<[^>]+>', ' ', html)
+    generic = re.findall(r'(?:\+91[\s\-]?)?0?[6-9]\d{4}[\s\-]?\d{5}', clean_text)
+    for g in generic:
+        norm = _normalize_phone(g)
+        if norm:
+            return norm
+
+    return None
+
+
+# -- Global Enrichment State ---------------------------------------------------
 _enrich_lock = threading.Lock()
 _enrich_state = {
-    "status": "idle",
+    "status": "idle",          # idle | running | stopped | completed | error
     "profile_id": None,
     "total": 0,
     "done": 0,
@@ -83,84 +115,60 @@ def is_enrichment_running() -> bool:
     return _enrich_thread is not None and _enrich_thread.is_alive()
 
 
-# -- Core search functions -----------------------------------------------------
+# -- Stealth Search Functions ---------------------------------------------------
 
-async def _search_google_phone(page, name, pincode, state):
+async def _search_google_phone(page, name: str, pincode: str, state: str) -> str | None:
+    """Stealth Google Search for the business name + pincode."""
     try:
-        query = _clean_for_search(name) + " " + pincode + " phone number"
-        url = "https://www.google.com/search?q=" + query.replace(' ', '+') + "&hl=en"
+        clean_name = _clean_for_search(name)
+        q = f"{clean_name} {pincode} {state} phone number"
+        url = f"https://www.google.com/search?q={q.replace(' ', '+')}&hl=en"
+
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-        await page.wait_for_timeout(1000)
-        text = await page.inner_text("body")
-        phones = _extract_indian_phones(text)
-        if phones:
-            return phones[0]
-        for selector in ["[data-dtype='d3ph']", ".LrzXr", "a[href^='tel:']"]:
+        await page.wait_for_timeout(1500)
+
+        # Check DOM structured elements first
+        for sel in ["[data-dtype='d3ph']", "[data-local-attribute='d3ph']", ".LrzXr", "a[href^='tel:']"]:
             try:
-                el = await page.query_selector(selector)
+                el = await page.query_selector(sel)
                 if el:
-                    t = await el.inner_text()
-                    phones = _extract_indian_phones(t)
-                    if phones:
-                        return phones[0]
+                    txt = await el.inner_text()
+                    phone = _normalize_phone(txt)
+                    if phone:
+                        return phone
             except Exception:
                 pass
+
+        # Check full raw HTML for contextual appointment / description numbers
+        html = await page.content()
+        return extract_phone_from_html(html)
+
     except Exception as e:
-        print(f"[ENRICH] Google error for {name}: {e}")
+        print(f"[ENRICH] Google search error for {name}: {e}")
     return None
 
 
-async def _search_justdial_phone(page, name, pincode, state):
+async def _search_justdial_phone(page, name: str, pincode: str, state: str) -> str | None:
+    """Search Google with site:justdial.com to extract JustDial listing phone."""
     try:
         clean_name = _clean_for_search(name)
-        query = "site:justdial.com " + clean_name + " " + pincode
-        url = "https://www.google.com/search?q=" + query.replace(' ', '+') + "&hl=en"
+        q = f"site:justdial.com {clean_name} {pincode}"
+        url = f"https://www.google.com/search?q={q.replace(' ', '+')}&hl=en"
+
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-        await page.wait_for_timeout(800)
-        jd_links = await page.query_selector_all("a[href*='justdial.com']")
-        if not jd_links:
-            return None
-        href = await jd_links[0].get_attribute("href")
-        if not href or "justdial.com" not in href:
-            return None
-        await page.goto(href, wait_until="domcontentloaded", timeout=15000)
-        await page.wait_for_timeout(1200)
-        text = await page.inner_text("body")
-        phones = _extract_indian_phones(text)
-        if phones:
-            return phones[0]
-    except Exception as e:
-        print(f"[ENRICH] JustDial error for {name}: {e}")
-    return None
-
-
-async def _search_sulekha_phone(page, name, pincode, state):
-    try:
-        clean_name = _clean_for_search(name)
-        query = "site:sulekha.com " + clean_name + " " + state + " phone"
-        url = "https://www.google.com/search?q=" + query.replace(' ', '+') + "&hl=en"
-        await page.goto(url, wait_until="domcontentloaded", timeout=12000)
-        await page.wait_for_timeout(700)
-        sul_links = await page.query_selector_all("a[href*='sulekha.com']")
-        if not sul_links:
-            return None
-        href = await sul_links[0].get_attribute("href")
-        if not href:
-            return None
-        await page.goto(href, wait_until="domcontentloaded", timeout=12000)
         await page.wait_for_timeout(1000)
-        text = await page.inner_text("body")
-        phones = _extract_indian_phones(text)
-        if phones:
-            return phones[0]
+
+        html = await page.content()
+        return extract_phone_from_html(html)
+
     except Exception as e:
-        print(f"[ENRICH] Sulekha error for {name}: {e}")
+        print(f"[ENRICH] JustDial search error for {name}: {e}")
     return None
 
 
-# -- Main enrichment runner ----------------------------------------------------
+# -- Background Worker ---------------------------------------------------------
 
-def run_phone_enrichment(profile_id, business_ids=None):
+def run_phone_enrichment(profile_id: int, business_ids: list = None):
     import asyncio
     from playwright.async_api import async_playwright
     from database import get_businesses_without_phone, update_business_phone
@@ -203,8 +211,7 @@ def run_phone_enrichment(profile_id, business_ids=None):
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
                     "--disable-software-rasterizer",
-                    "--disable-extensions",
-                    "--disable-background-networking",
+                    "--disable-blink-features=AutomationControlled",
                     "--blink-settings=imagesEnabled=false",
                     "--js-flags=--max-old-space-size=96",
                 ]
@@ -212,12 +219,16 @@ def run_phone_enrichment(profile_id, business_ids=None):
             ctx = await browser.new_context(
                 viewport={"width": 800, "height": 600},
                 user_agent=(
-                    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                 ),
                 locale="en-IN",
             )
             page = await ctx.new_page()
+            # Mask navigator.webdriver
+            await page.add_init_script("delete Object.getPrototypeOf(navigator).webdriver;")
+
+            # Block heavy assets to save CPU & RAM
             await page.route("**/*", lambda route: (
                 route.abort()
                 if route.request.resource_type in ("image", "media", "font", "stylesheet")
@@ -241,14 +252,14 @@ def run_phone_enrichment(profile_id, business_ids=None):
                     found_phone = None
                     source = None
 
-                    # 1) Google
+                    # 1. Google Stealth Search
                     with _enrich_lock:
                         _enrich_state["current_source"] = "Google"
                     found_phone = await _search_google_phone(page, biz_name, pincode, state)
                     if found_phone:
                         source = "Google"
 
-                    # 2) JustDial
+                    # 2. JustDial Google Search
                     if not found_phone and not _stop_enrich_event.is_set():
                         with _enrich_lock:
                             _enrich_state["current_source"] = "JustDial"
@@ -256,15 +267,7 @@ def run_phone_enrichment(profile_id, business_ids=None):
                         if found_phone:
                             source = "JustDial"
 
-                    # 3) Sulekha
-                    if not found_phone and not _stop_enrich_event.is_set():
-                        with _enrich_lock:
-                            _enrich_state["current_source"] = "Sulekha"
-                        found_phone = await _search_sulekha_phone(page, biz_name, pincode, state)
-                        if found_phone:
-                            source = "Sulekha"
-
-                    # Save to DB
+                    # Save to DB immediately
                     if found_phone:
                         if not existing_phone or existing_phone in ("N/A", ""):
                             update_business_phone(biz_id, phone=found_phone, phone_2=None)
@@ -282,9 +285,9 @@ def run_phone_enrichment(profile_id, business_ids=None):
                             })
                             _enrich_state["recent_found"] = recent[:15]
 
-                        print(f"[ENRICH] {biz_name} -> {found_phone} (via {source})")
+                        print(f"[ENRICH] [OK] {biz_name} -> {found_phone} (via {source})")
                     else:
-                        print(f"[ENRICH] No number found for: {biz_name}")
+                        print(f"[ENRICH] [MISS] {biz_name} -> no number found")
 
                     with _enrich_lock:
                         _enrich_state["done"] += 1
@@ -313,7 +316,7 @@ def run_phone_enrichment(profile_id, business_ids=None):
         print(f"[ENRICH] Fatal error: {e}")
 
 
-def start_enrichment_thread(profile_id, business_ids=None):
+def start_enrichment_thread(profile_id: int, business_ids: list = None):
     global _enrich_thread
     if is_enrichment_running():
         return "Enrichment already running."
