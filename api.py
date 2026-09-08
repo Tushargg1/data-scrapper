@@ -9,6 +9,7 @@ Run with: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 Swagger:   http://localhost:8000/docs
 """
 import io
+import time
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Depends, Query, Header, Request
@@ -93,6 +94,14 @@ def require_profile_key(slug: str, x_api_key: str = Header(..., alias="X-API-Key
 
 def df_to_records(df: pd.DataFrame) -> list:
     return df.fillna("").to_dict(orient="records")
+
+
+# ── Health Check (For UptimeRobot / Keep-Alive Bots) ──────────────────────────
+@app.get("/health", tags=["Info"])
+@app.get("/ping", tags=["Info"])
+def health():
+    """Uptime bot health check endpoint — always returns 200 OK to keep Render free tier awake."""
+    return {"status": "ok", "service": "data-scrapper", "timestamp": time.time()}
 
 
 # ── Root ──────────────────────────────────────────────────────────────────────
