@@ -10,9 +10,10 @@ Swagger:   http://localhost:8000/docs
 """
 import io
 import time
+import json
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Header, Request
+from fastapi import FastAPI, HTTPException, Depends, Query, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
@@ -97,16 +98,23 @@ def df_to_records(df: pd.DataFrame) -> list:
 
 
 # ── Health Check (For UptimeRobot / Keep-Alive Bots) ──────────────────────────
-@app.get("/health", tags=["Info"])
-@app.get("/ping", tags=["Info"])
-def health():
-    """Uptime bot health check endpoint — always returns 200 OK to keep Render free tier awake."""
-    return {"status": "ok", "service": "data-scrapper", "timestamp": time.time()}
+@app.api_route("/health", methods=["GET", "HEAD"], tags=["Info"])
+@app.api_route("/ping", methods=["GET", "HEAD"], tags=["Info"])
+def health(request: Request):
+    """Uptime bot health check endpoint — returns 200 OK for both GET and HEAD requests."""
+    return Response(
+        content=json.dumps({"status": "ok", "service": "data-scrapper", "timestamp": time.time()}),
+        status_code=200,
+        media_type="application/json"
+    )
 
 
 # ── Root ──────────────────────────────────────────────────────────────────────
-@app.get("/", tags=["Info"])
+@app.api_route("/", methods=["GET", "HEAD"], tags=["Info"])
 def root(request: Request):
+    if request.method == "HEAD":
+        return Response(status_code=200)
+
     from database import get_connection
     try:
         _, is_mysql = get_connection()
@@ -130,8 +138,10 @@ def root(request: Request):
     return RedirectResponse(url="https://data-scrapper-henna.vercel.app", status_code=302)
 
 
-@app.get("/api/info", tags=["Info"])
-def api_info():
+@app.api_route("/api/info", methods=["GET", "HEAD"], tags=["Info"])
+def api_info(request: Request):
+    if request.method == "HEAD":
+        return Response(status_code=200)
     from database import get_connection
     try:
         _, is_mysql = get_connection()
