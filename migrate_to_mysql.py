@@ -22,7 +22,7 @@ args, _ = parser.parse_known_args()
 MYSQL_HOST = args.host or os.getenv("MYSQL_HOST", "data-extractor-groomitindia.i.aivencloud.com")
 MYSQL_PORT = int(os.getenv("MYSQL_PORT", 23652))
 MYSQL_USER = args.user or os.getenv("MYSQL_USER", "avnadmin")
-MYSQL_PASS = args.password or os.getenv("MYSQL_PASS") or ("AVNS_" + "oc1lMJI7aq4" + "ea6u1LIB")
+MYSQL_PASS = args.password or os.getenv("MYSQL_PASS") or ("AVNS_" + "oc1IMJI7aq4" + "ea6u1LIB")
 MYSQL_DB   = args.db or os.getenv("MYSQL_DB", "defaultdb")
 
 SQLITE_PATH = os.path.join(os.path.dirname(__file__), "scraper_data.db")
@@ -87,7 +87,7 @@ def create_mysql_tables(my_conn):
                 phone_3 VARCHAR(100) DEFAULT '',
                 website_available VARCHAR(50),
                 website_link TEXT,
-                maps_url VARCHAR(768),
+                maps_url VARCHAR(500),
                 lead_status VARCHAR(100) DEFAULT '🆕 New Lead',
                 notes TEXT,
                 is_sent INT DEFAULT 0,
@@ -96,7 +96,7 @@ def create_mysql_tables(my_conn):
                 scraped_at VARCHAR(100) NOT NULL,
                 updated_at VARCHAR(100),
                 UNIQUE KEY unique_maps (profile_id, maps_url)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC;
         """)
 
         # API Users
@@ -123,7 +123,7 @@ def create_mysql_tables(my_conn):
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
 
-    print("✅ MySQL schema created/verified.")
+    print("OK: MySQL schema created/verified.")
 
 
 def migrate():
@@ -153,7 +153,7 @@ def migrate():
                 """, (p["id"], p["name"], p["slug"], p["description"], p["icon"], p["niches"], p["api_key"], p["created_at"]))
             except Exception as e:
                 print("Profile skip:", e)
-        print(f"✅ Migrated {len(profiles)} profiles.")
+        print(f"[OK] Migrated {len(profiles)} profiles.")
 
         # Migrate Businesses
         sq_cur.execute("SELECT * FROM businesses")
@@ -171,13 +171,13 @@ def migrate():
                     b["id"], b["profile_id"], b["state"], b["pincode"], b["niche"], b["name"],
                     b["rating"], b["reviews"], b["phone"], b.get("phone_2", ""), b.get("phone_3", ""),
                     b["website_available"], b["website_link"], b["maps_url"],
-                    b.get("lead_status", "🆕 New Lead"), b.get("notes", ""), b.get("is_sent", 0),
+                    b.get("lead_status", "New Lead"), b.get("notes", ""), b.get("is_sent", 0),
                     b.get("sent_to_user_code"), b.get("sent_at"), b["scraped_at"], b.get("updated_at")
                 ))
                 inserted_biz += 1
             except Exception as e:
                 pass
-        print(f"✅ Migrated {inserted_biz} businesses.")
+        print(f"[OK] Migrated {inserted_biz} businesses.")
 
         # Migrate API Users
         try:
@@ -188,17 +188,17 @@ def migrate():
                     INSERT IGNORE INTO api_users (id, username, phone_number, user_code, profile_id, status, created_at, approved_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """, (u["id"], u["username"], u["phone_number"], u["user_code"], u["profile_id"], u["status"], u["created_at"], u.get("approved_at")))
-            print(f"✅ Migrated {len(users)} API users.")
+            print(f"[OK] Migrated {len(users)} API users.")
         except Exception:
             pass
 
     sq_conn.close()
     my_conn.close()
-    print("🎉 MIGRATION COMPLETE! All data is now live on Aiven MySQL!")
+    print("MIGRATION COMPLETE! All data is now live on Aiven MySQL!")
 
 
 if __name__ == "__main__":
     try:
         migrate()
     except Exception as e:
-        print("Migration failed (Aiven node may still be building):", e)
+        print("Migration failed:", e)

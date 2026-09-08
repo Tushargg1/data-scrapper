@@ -13,7 +13,7 @@ from datetime import datetime
 MYSQL_HOST = os.getenv("MYSQL_HOST", "data-extractor-groomitindia.i.aivencloud.com")
 MYSQL_PORT = int(os.getenv("MYSQL_PORT", 23652))
 MYSQL_USER = os.getenv("MYSQL_USER", "avnadmin")
-MYSQL_PASS = os.getenv("MYSQL_PASS") or ("AVNS_" + "oc1lMJI7aq4" + "ea6u1LIB")
+MYSQL_PASS = os.getenv("MYSQL_PASS") or ("AVNS_" + "oc1IMJI7aq4" + "ea6u1LIB")
 MYSQL_DB   = os.getenv("MYSQL_DB", "defaultdb")
 USE_MYSQL  = os.getenv("USE_MYSQL", "1") == "1"
 
@@ -106,7 +106,7 @@ def init_db():
                 phone_3 VARCHAR(100) DEFAULT '',
                 website_available VARCHAR(50),
                 website_link TEXT,
-                maps_url VARCHAR(768),
+                maps_url VARCHAR(500),
                 lead_status VARCHAR(100) DEFAULT '🆕 New Lead',
                 notes TEXT,
                 is_sent INT DEFAULT 0,
@@ -115,7 +115,7 @@ def init_db():
                 scraped_at VARCHAR(100) NOT NULL,
                 updated_at VARCHAR(100),
                 UNIQUE KEY unique_maps (profile_id, maps_url)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC;
         """)
 
         cur.execute("""
