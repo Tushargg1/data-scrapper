@@ -7,8 +7,9 @@ env/
 venv/
 ENV/
 .venv/
-*.db
-*.sqlite3
+# Database files included for cloud deployment
+# *.db
+# *.sqlite3
 *.log
 .DS_Store
 test_scrape.py
