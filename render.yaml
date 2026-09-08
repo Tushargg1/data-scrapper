@@ -3,7 +3,7 @@ services:
   - type: web
     name: beauty-biz-scraper-ui
     env: python
-    buildCommand: "pip install -r requirements.txt && playwright install chromium"
+    buildCommand: "pip install -r render_requirements.txt && playwright install chromium"
     startCommand: "streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false"
     envVars:
       - key: PYTHON_VERSION
@@ -13,7 +13,7 @@ services:
   - type: web
     name: beauty-biz-scraper-api
     env: python
-    buildCommand: "pip install -r requirements.txt"
+    buildCommand: "pip install -r render_requirements.txt"
     startCommand: "uvicorn api:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: PYTHON_VERSION
