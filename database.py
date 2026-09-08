@@ -8,7 +8,11 @@ import json
 import pandas as pd
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "scraper_data.db")
+# Detect if running in serverless / Vercel read-only environment
+if os.getenv("VERCEL") == "1" or "VERCEL" in os.environ or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+    DB_PATH = "/tmp/scraper_data.db"
+else:
+    DB_PATH = os.path.join(os.path.dirname(__file__), "scraper_data.db")
 
 
 def get_connection():
