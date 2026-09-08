@@ -114,6 +114,7 @@ export default function App() {
         onRefresh={refreshAll}
         dbEngine={dbEngine}
         apiOnline={apiOnline}
+        onNavigateTab={(tab) => setActiveTab(tab)}
       />
 
       {/* Backend Connection Warning Banner if Offline */}
@@ -178,6 +179,7 @@ export default function App() {
               <ScraperTab
                 activeProfile={activeProfile}
                 onDataChanged={refreshAll}
+                onNavigateTab={(tab) => setActiveTab(tab)}
               />
             )}
             {activeTab === "profiles" && (

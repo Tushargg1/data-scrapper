@@ -18,7 +18,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Depends, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 import pandas as pd
 from dashboard_html import get_dashboard_html
@@ -92,7 +92,7 @@ def df_to_records(df: pd.DataFrame) -> list:
 # ── Root ──────────────────────────────────────────────────────────────────────
 @app.get("/", tags=["Info"])
 def root(request: Request):
-    from database import get_connection, get_stats, get_businesses
+    from database import get_connection
     try:
         _, is_mysql = get_connection()
         db_engine = "mysql" if is_mysql else "sqlite"
@@ -108,18 +108,11 @@ def root(request: Request):
             "admin_endpoints": "/api/profiles",
             "status": "running",
             "db_engine": db_engine,
+            "frontend": "https://data-scrapper-henna.vercel.app"
         })
 
-    try:
-        stats = get_stats()
-        df = get_businesses(limit=250)
-        businesses = df_to_records(df)
-    except Exception:
-        stats = {}
-        businesses = []
-
-    html = get_dashboard_html(stats, businesses, db_engine, APP_NAME, APP_VERSION)
-    return HTMLResponse(content=html)
+    # Direct browser requests to the React Frontend on Vercel
+    return RedirectResponse(url="https://data-scrapper-henna.vercel.app", status_code=302)
 
 
 @app.get("/api/info", tags=["Info"])

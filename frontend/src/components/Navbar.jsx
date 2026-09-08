@@ -88,6 +88,14 @@ export default function Navbar({
                 {copiedKey && <span className="text-emerald-400 font-sans">✓</span>}
               </button>
             )}
+
+            <button
+              onClick={() => onNavigateTab && onNavigateTab("profiles")}
+              title="Create or Manage Profiles"
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold transition flex items-center gap-1.5"
+            >
+              <span>+ New Profile</span>
+            </button>
           </div>
 
           {/* Right Status & Controls */}

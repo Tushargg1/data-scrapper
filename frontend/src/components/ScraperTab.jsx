@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { getStates, getPincodes, startScraping, getScrapeStatus, stopScraping } from "../api";
 
-export default function ScraperTab({ activeProfile, onDataChanged }) {
+export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab }) {
   const [states, setStates] = useState([]);
   const [selectedState, setSelectedState] = useState("");
   const [pincodes, setPincodes] = useState([]);
@@ -200,6 +200,14 @@ export default function ScraperTab({ activeProfile, onDataChanged }) {
           <p className="text-xs text-slate-400 mt-1 max-w-xl">
             {activeProfile?.description || "Select a profile to customize niches and target pincodes."}
           </p>
+          <div className="pt-2">
+            <button
+              onClick={() => onNavigateTab && onNavigateTab("profiles")}
+              className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-750 text-emerald-400 border border-slate-700 font-semibold transition inline-flex items-center gap-1.5"
+            >
+              <span>⚙️ Add / Change Scraper Profile</span>
+            </button>
+          </div>
         </div>
 
         {/* Global Controls */}
