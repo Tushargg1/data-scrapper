@@ -58,6 +58,17 @@ app.add_middleware(
 
 init_db()
 
+import threading
+from scraper import ensure_playwright_installed
+
+def _warmup():
+    try:
+        ensure_playwright_installed()
+    except Exception as e:
+        print(f"[STARTUP] Playwright warmup error: {e}")
+
+threading.Thread(target=_warmup, daemon=True).start()
+
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 

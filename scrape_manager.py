@@ -115,6 +115,8 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
                     mark_as_scraped(state, pc, niche, count, profile_id)
                 except Exception as ex:
                     print(f"[SCRAPER] Error on {niche} in {pc}: {ex}")
+                    with scrape_lock:
+                        current_scrape_job["error"] = f"{pc} ({niche}): {str(ex)[:150]}"
 
                 with scrape_lock:
                     current_scrape_job["done_jobs"] += 1

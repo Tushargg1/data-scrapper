@@ -520,9 +520,9 @@ def update_lead_status(business_id: int, status: str, notes: str = None):
         conn.close()
 
 
-def get_businesses(profile_id: int = 1, state: str = None, niche: str = None,
-                   has_phone: bool = None, has_website: bool = None,
-                   lead_status: str = None, limit: int = 500) -> pd.DataFrame:
+def get_businesses(profile_id: int = 1, state: str = None, pincode: str = None,
+                   niche: str = None, has_phone: bool = None, has_website: bool = None,
+                   lead_status: str = None, page: int = 1, limit: int = 500) -> pd.DataFrame:
     conn, is_mysql = get_connection()
     try:
         query = "SELECT * FROM businesses WHERE profile_id=?"
@@ -531,6 +531,9 @@ def get_businesses(profile_id: int = 1, state: str = None, niche: str = None,
         if state:
             query += " AND state=?"
             params.append(state)
+        if pincode:
+            query += " AND pincode=?"
+            params.append(pincode)
         if niche:
             query += " AND niche=?"
             params.append(niche)
@@ -548,8 +551,9 @@ def get_businesses(profile_id: int = 1, state: str = None, niche: str = None,
             query += " AND lead_status=?"
             params.append(lead_status)
 
-        query += " ORDER BY scraped_at DESC LIMIT ?"
-        params.append(limit)
+        offset = max(0, (page - 1) * limit)
+        query += " ORDER BY scraped_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
         if is_mysql:
             m_query = query.replace("?", "%s")
