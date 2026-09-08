@@ -261,11 +261,11 @@ export default function LeadsTab({ activeProfile }) {
                           <span className="text-slate-500 font-normal">({b.reviews || 0})</span>
                         </div>
 
-                        {b.website_link && b.website_link !== "N/A" ? (
+                        {b.website_link && b.website_link !== "N/A" && !b.website_link.includes("google.") && !b.website_link.includes("gstatic.") ? (
                           <a
                             href={b.website_link}
                             target="_blank"
-                            rel="noreferrer"
+                            rel="noopener noreferrer"
                             className="text-blue-400 hover:underline flex items-center gap-1 text-[11px] truncate max-w-[130px]"
                           >
                             <Globe className="w-3 h-3" />

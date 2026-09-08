@@ -509,8 +509,10 @@ def save_single_business(state: str, pincode: str, niche: str,
         p1 = item.get("Phone 1", item.get("Phone", ""))
         p2 = item.get("Phone 2", "")
         p3 = item.get("Phone 3", "")
-        web_avail = item.get("Website Available?", "")
         web_link = item.get("Website Link", "")
+        if web_link and any(bad in str(web_link).lower() for bad in ["google.", "gstatic.", "googleusercontent."]):
+            web_link = "N/A"
+        web_avail = "Yes" if web_link not in ("N/A", "", None) else "No"
         rating = item.get("Rating", "")
         reviews = item.get("Reviews", "")
         name = item.get("Name", "")

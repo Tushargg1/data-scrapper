@@ -103,10 +103,14 @@ def _parse_tbm_map_text(text: str) -> list:
                         if digits2[-10:] == digits1[-10:]:
                             p2 = ""
 
-                    # Website
+                    # Website (Google Maps canonical website is at obj[7][0])
                     web = "N/A"
-                    webs = re.findall(r'\"(https?\:\/\/(?!(?:www\.)?(?:google|gstatic|ggpht|schema\.org|lh3\.googleusercontent)\.com)[^\"]+)\"', s)
-                    if webs: web = webs[0]
+                    if len(obj) > 7 and isinstance(obj[7], list) and len(obj[7]) > 0 and isinstance(obj[7][0], str):
+                        cand = obj[7][0].strip()
+                        if cand.startswith("http"):
+                            cand_lower = cand.lower()
+                            if not any(bad in cand_lower for bad in ["google.", "gstatic.", "ggpht.", "schema.org", "googleusercontent."]):
+                                web = cand
 
                     # Rating & Reviews
                     rating = "N/A"

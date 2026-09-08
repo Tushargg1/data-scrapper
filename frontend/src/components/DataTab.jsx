@@ -393,9 +393,10 @@ export default function DataTab({ activeProfile, onDataChanged }) {
                       ★ {b.rating || "N/A"} <span className="text-slate-500 font-normal">({b.reviews || 0})</span>
                     </td>
                     <td className="p-3.5">
-                      {b.website_link && b.website_link !== "N/A" ? (
-                        <a href={b.website_link} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
-                          🔗 Link
+                      {b.website_link && b.website_link !== "N/A" && !b.website_link.includes("google.") && !b.website_link.includes("gstatic.") ? (
+                        <a href={b.website_link} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline flex items-center gap-1">
+                          <Globe className="w-3 h-3 shrink-0" />
+                          <span>Visit Site</span>
                         </a>
                       ) : (
                         <span className="text-slate-600">—</span>
