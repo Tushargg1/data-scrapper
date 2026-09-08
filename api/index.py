@@ -33,6 +33,7 @@ from database import (
     get_distinct_states, get_distinct_niches,
     register_api_user, get_user_by_code, get_all_api_users,
     update_user_status, get_and_mark_unsent_batch, get_batch_delivery_stats,
+    clear_all_data,
 )
 from profiles_manager import create_new_profile, get_template_names, get_template
 from niches import ALL_NICHES, ALL_INDUSTRY_NICHES, LEAD_STATUSES
@@ -212,6 +213,15 @@ def delete_profile_endpoint(slug: str):
         raise HTTPException(status_code=404, detail=f"Profile '{slug}' not found.")
     delete_profile(slug)
     return {"success": True, "message": f"Profile '{slug}' and all its data deleted."}
+
+
+@app.delete("/api/profiles/{slug}/data", tags=["Profile Data"])
+def clear_profile_data_endpoint(slug: str, x_api_key: str = Header(..., alias="X-API-Key")):
+    """Clear all scraped businesses and jobs for a profile so you can start fresh."""
+    profile = require_profile_key(slug, x_api_key)
+    clear_all_data(profile["id"])
+    return {"success": True, "message": f"All data for profile '{slug}' cleared successfully."}
+
 
 
 # ════════════════════════════════════════════════════════════════════════════

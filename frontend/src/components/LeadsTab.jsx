@@ -295,7 +295,7 @@ export default function LeadsTab({ activeProfile }) {
 
                       {/* Maps Link */}
                       <td className="p-3.5">
-                        {b.maps_url ? (
+                        {b.maps_url && b.maps_url.startsWith("http") ? (
                           <a
                             href={b.maps_url}
                             target="_blank"
@@ -303,7 +303,7 @@ export default function LeadsTab({ activeProfile }) {
                             className="text-indigo-400 hover:underline text-[11px] flex items-center gap-1"
                           >
                             <ExternalLink className="w-3 h-3" />
-                            <span>Maps</span>
+                            <span>Open Maps</span>
                           </a>
                         ) : (
                           <span className="text-slate-600">—</span>

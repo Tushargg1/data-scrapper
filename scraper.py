@@ -117,12 +117,15 @@ def _parse_tbm_map_text(text: str) -> list:
                         if len(obj[4]) > 8 and obj[4][8] is not None:
                             reviews = str(obj[4][8])
 
-                    # Maps URL
-                    maps_url = ""
-                    if len(obj) > 14 and isinstance(obj[14], str):
-                        maps_url = obj[14]
+                    # Maps URL (Direct Google Maps link with hex ID or universal query)
+                    hexes = re.findall(r'0x[0-9a-fA-F]+:0x[0-9a-fA-F]+', s)
+                    if hexes:
+                        clean_name = re.sub(r'[^\w\s\-\.]', '', name).strip()
+                        maps_url = f"https://www.google.com/maps/place/{clean_name.replace(' ', '+')}/data=!4m2!3m1!1s{hexes[0]}"
                     else:
-                        maps_url = f"https://www.google.com/maps/place/{name.replace(' ', '+')}"
+                        clean_target = f"{name}, {addr}".strip(", ")
+                        clean_target = re.sub(r'[^\w\s\-\.,]', '', clean_target)
+                        maps_url = f"https://www.google.com/maps/search/?api=1&query={clean_target.replace(' ', '+')}"
 
                     discovered.append({
                         "Name": name,

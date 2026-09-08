@@ -74,6 +74,13 @@ export async function deleteProfile(slug) {
   });
 }
 
+export async function clearProfileData(slug, apiKey) {
+  return request(`/api/profiles/${slug}/data`, {
+    method: "DELETE",
+    headers: { "X-API-Key": apiKey || ADMIN_API_KEY }
+  });
+}
+
 export async function getTemplates() {
   const res = await request("/api/profiles/templates", {
     headers: { "X-API-Key": ADMIN_API_KEY }

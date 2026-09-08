@@ -1,14 +1,18 @@
 import React, { useState, useEffect, useRef } from "react";
 import { 
   Download, Search, Phone, Globe, Star, ExternalLink,
-  Loader2, RefreshCw, Zap, StopCircle, CheckCircle2, XCircle
+  Loader2, RefreshCw, Zap, StopCircle, CheckCircle2, XCircle,
+  Copy, Check, Trash2
 } from "lucide-react";
 import { getBusinesses, getExportCsvUrl, getStates,
-         startPhoneEnrichment, getEnrichmentStatus, stopEnrichment } from "../api";
+         startPhoneEnrichment, getEnrichmentStatus, stopEnrichment,
+         clearProfileData } from "../api";
 
-export default function DataTab({ activeProfile }) {
+export default function DataTab({ activeProfile, onDataChanged }) {
   const [businesses, setBusinesses] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [clearingData, setClearingData] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
   const [search, setSearch] = useState("");
   const [states, setStates] = useState([]);
   const [selectedState, setSelectedState] = useState("");
@@ -102,6 +106,31 @@ export default function DataTab({ activeProfile }) {
     }
   };
 
+  const handleCopyMap = (url, id) => {
+    if (!url) return;
+    navigator.clipboard.writeText(url);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleClearAllData = async () => {
+    if (!activeProfile) return;
+    if (!window.confirm(`⚠️ Are you sure you want to delete ALL scraped records for profile "${activeProfile.name}"?\n\nThis will permanently wipe all business records and job history so you can start a fresh extraction.`)) {
+      return;
+    }
+    setClearingData(true);
+    try {
+      await clearProfileData(activeProfile.slug, activeProfile.api_key);
+      await fetchRecords();
+      if (onDataChanged) onDataChanged();
+      alert("✅ All old data deleted successfully. You can now start fresh extraction!");
+    } catch (err) {
+      alert(err.message || "Failed to delete data.");
+    } finally {
+      setClearingData(false);
+    }
+  };
+
   const filtered = businesses.filter((b) => {
     if (!search) return true;
     const q = search.toLowerCase();
@@ -130,6 +159,17 @@ export default function DataTab({ activeProfile }) {
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
+          {/* Clear / Delete All Data button */}
+          <button
+            onClick={handleClearAllData}
+            disabled={clearingData}
+            title="Delete all scraped data for this profile to start fresh"
+            className="bg-rose-950/60 hover:bg-rose-900/80 border border-rose-800/60 text-rose-300 hover:text-white text-xs font-semibold px-3.5 py-2.5 rounded-xl transition flex items-center gap-2 disabled:opacity-50"
+          >
+            {clearingData ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4 text-rose-400" />}
+            Clear All Data
+          </button>
+
           {/* Find Missing Phones button */}
           {enrichStatus?.status === "running" ? (
             <button
@@ -307,7 +347,7 @@ export default function DataTab({ activeProfile }) {
                   <th className="p-3.5 font-semibold">Phone Numbers</th>
                   <th className="p-3.5 font-semibold">Rating / Reviews</th>
                   <th className="p-3.5 font-semibold">Website</th>
-                  <th className="p-3.5 font-semibold">Maps</th>
+                  <th className="p-3.5 font-semibold">Google Maps</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
@@ -362,10 +402,29 @@ export default function DataTab({ activeProfile }) {
                       )}
                     </td>
                     <td className="p-3.5">
-                      {b.maps_url ? (
-                        <a href={b.maps_url} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">
-                          🗺️ View
-                        </a>
+                      {b.maps_url && b.maps_url.startsWith("http") ? (
+                        <div className="flex items-center gap-1.5">
+                          <a
+                            href={b.maps_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-indigo-400 hover:text-indigo-300 hover:underline text-[11px] flex items-center gap-1"
+                          >
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                            <span>Open Maps</span>
+                          </a>
+                          <button
+                            onClick={() => handleCopyMap(b.maps_url, b.id)}
+                            title="Copy Google Maps URL"
+                            className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-200 transition"
+                          >
+                            {copiedId === b.id ? (
+                              <Check className="w-3 h-3 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3 h-3" />
+                            )}
+                          </button>
+                        </div>
                       ) : (
                         <span className="text-slate-600">—</span>
                       )}

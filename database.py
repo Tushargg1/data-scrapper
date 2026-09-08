@@ -497,8 +497,11 @@ def save_single_business(state: str, pincode: str, niche: str,
                          item: dict, profile_id: int = 1) -> bool:
     """Instantly save a single scraped business item to MySQL or SQLite, automatically updating missing/N/A fields if already exists."""
     maps_url = item.get("Google Maps URL", "")
-    if not maps_url:
-        return False
+    name = item.get("Name", "")
+    if not maps_url or not str(maps_url).startswith("http"):
+        clean_target = f"{name}, {pincode}, India".strip(", ")
+        clean_target = re.sub(r'[^\w\s\-\.,]', '', clean_target)
+        maps_url = f"https://www.google.com/maps/search/?api=1&query={clean_target.replace(' ', '+')}"
     conn, is_mysql = get_connection()
     now = datetime.now().isoformat()
     inserted = False
@@ -930,3 +933,23 @@ def get_batch_delivery_stats(profile_id: int = None) -> dict:
         }
     finally:
         conn.close()
+
+
+def clear_all_data(profile_id: int = None) -> bool:
+    """Deletes all businesses and scraped jobs. If profile_id is None, clears all profile data."""
+    conn, is_mysql = get_connection()
+    try:
+        if profile_id is not None:
+            execute_db(conn, is_mysql, "DELETE FROM businesses WHERE profile_id=?", (profile_id,))
+            execute_db(conn, is_mysql, "DELETE FROM scraped_jobs WHERE profile_id=?", (profile_id,))
+            execute_db(conn, is_mysql, "DELETE FROM sent_history WHERE business_id NOT IN (SELECT id FROM businesses)", ())
+        else:
+            execute_db(conn, is_mysql, "DELETE FROM businesses", ())
+            execute_db(conn, is_mysql, "DELETE FROM scraped_jobs", ())
+            execute_db(conn, is_mysql, "DELETE FROM sent_history", ())
+        if not is_mysql:
+            conn.commit()
+        return True
+    finally:
+        conn.close()
+
