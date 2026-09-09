@@ -99,7 +99,15 @@ def require_profile_key(slug: str, x_api_key: str = Header(..., alias="X-API-Key
 
 
 def df_to_records(df: pd.DataFrame) -> list:
-    return df.fillna("").to_dict(orient="records")
+    records = df.fillna("").to_dict(orient="records")
+    for r in records:
+        web = r.get("website_link") or ""
+        if not web or web == "N/A" or r.get("website_available") == "No":
+            r["website"] = "N/A"
+        else:
+            r["website"] = web
+    return records
+
 
 
 # ── Health Check (For UptimeRobot / Keep-Alive Bots) ──────────────────────────
@@ -562,14 +570,26 @@ def api_get_batch_data(
     # Fetch exactly 10 unsent leads & mark them sent in a single transaction
     batch = get_and_mark_unsent_batch(user_code=user["user_code"], profile_id=profile_id, limit=10)
 
+    formatted_businesses = []
+    for b in batch:
+        item = dict(b)
+        web = item.get("website_link") or ""
+        if not web or web == "N/A" or item.get("website_available") == "No":
+            item["website"] = "N/A"
+        else:
+            item["website"] = web
+        item["website_link"] = item["website"]
+        formatted_businesses.append(item)
+
     return {
         "success": True,
         "user_code": user["user_code"],
         "username": user["username"],
-        "batch_size": len(batch),
-        "message": f"Successfully delivered {len(batch)} fresh leads. Marked as sent.",
-        "businesses": df_to_records(pd.DataFrame(batch)) if batch else []
+        "batch_size": len(formatted_businesses),
+        "message": f"Successfully delivered {len(formatted_businesses)} fresh leads. Marked as sent." if formatted_businesses else "No unsent fresh leads available. Please scrape more leads first.",
+        "businesses": formatted_businesses
     }
+
 
 
 # ════════════════════════════════════════════════════════════════════════════

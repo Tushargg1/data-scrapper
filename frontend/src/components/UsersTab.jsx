@@ -109,6 +109,14 @@ export default function UsersTab() {
           </select>
 
           <button
+            onClick={fetchUsers}
+            title="Refresh users list"
+            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          </button>
+
+          <button
             onClick={() => setShowAddUser(true)}
             className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5"
           >
@@ -116,6 +124,7 @@ export default function UsersTab() {
           </button>
         </div>
       </div>
+
 
       {msg.text && (
         <div className={`p-4 rounded-xl text-xs flex items-center gap-2 ${

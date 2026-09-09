@@ -26,24 +26,31 @@ else:
 def get_connection():
     """Attempts MySQL connection first; falls back to SQLite if unreachable."""
     if USE_MYSQL:
-        try:
-            conn = pymysql.connect(
-                host=MYSQL_HOST,
-                port=MYSQL_PORT,
-                user=MYSQL_USER,
-                password=MYSQL_PASS,
-                database=MYSQL_DB,
-                ssl={'ssl': True},
-                cursorclass=pymysql.cursors.DictCursor,
-                autocommit=True
-            )
-            return conn, True
-        except Exception:
-            pass
+        for attempt in range(2):
+            try:
+                conn = pymysql.connect(
+                    host=MYSQL_HOST,
+                    port=MYSQL_PORT,
+                    user=MYSQL_USER,
+                    password=MYSQL_PASS,
+                    database=MYSQL_DB,
+                    ssl={'ssl': True},
+                    cursorclass=pymysql.cursors.DictCursor,
+                    autocommit=True,
+                    connect_timeout=8
+                )
+                return conn, True
+            except Exception as e:
+                if attempt == 0:
+                    import time
+                    time.sleep(0.3)
+                else:
+                    print(f"[DB ERROR] MySQL connection failed: {e}")
 
     conn = sqlite3.connect(SQLITE_PATH)
     conn.row_factory = sqlite3.Row
     return conn, False
+
 
 
 def execute_db(conn, is_mysql: bool, sql: str, params=()):
