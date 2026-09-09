@@ -4,7 +4,7 @@ import {
   Loader2, RefreshCw, Zap, StopCircle, CheckCircle2, XCircle,
   Copy, Check, Trash2
 } from "lucide-react";
-import { getBusinesses, getExportCsvUrl, getStates,
+import { getBusinesses, getExportCsvUrl, getStates, getPincodes,
          startPhoneEnrichment, getEnrichmentStatus, stopEnrichment,
          clearProfileData } from "../api";
 
@@ -24,7 +24,8 @@ export default function DataTab({ activeProfile, onDataChanged }) {
   const [search, setSearch] = useState("");
   const [states, setStates] = useState([]);
   const [selectedState, setSelectedState] = useState("");
-  const [selectedNiche, setSelectedNiche] = useState("");
+  const [selectedPincode, setSelectedPincode] = useState("");
+  const [statePincodes, setStatePincodes] = useState([]);
   const [deliveryFilter, setDeliveryFilter] = useState("all"); // "all" | "sent" | "unsent"
 
   // Enrichment state
@@ -46,7 +47,7 @@ export default function DataTab({ activeProfile, onDataChanged }) {
         page: pageNum,
         limit: PAGE_SIZE,
         state: selectedState || undefined,
-        niche: selectedNiche || undefined
+        pincode: selectedPincode || undefined
       });
 
       const incoming = res.businesses || [];
@@ -84,8 +85,17 @@ export default function DataTab({ activeProfile, onDataChanged }) {
   }, []);
 
   useEffect(() => {
+    if (selectedState) {
+      getPincodes(selectedState).then((pcs) => setStatePincodes(pcs || []));
+    } else {
+      setStatePincodes([]);
+    }
+    setSelectedPincode("");
+  }, [selectedState]);
+
+  useEffect(() => {
     fetchRecords(1, true);
-  }, [activeProfile, selectedState, selectedNiche]);
+  }, [activeProfile, selectedState, selectedPincode]);
 
   // Infinite scroll observer: trigger loadNextPage when bottom sentinel appears
   useEffect(() => {
@@ -104,7 +114,7 @@ export default function DataTab({ activeProfile, onDataChanged }) {
     return () => {
       if (target) observer.unobserve(target);
     };
-  }, [hasMore, loading, loadingMore, page, activeProfile, selectedState, selectedNiche]);
+  }, [hasMore, loading, loadingMore, page, activeProfile, selectedState, selectedPincode]);
 
   // Poll enrichment status if running
   useEffect(() => {
@@ -171,6 +181,7 @@ export default function DataTab({ activeProfile, onDataChanged }) {
   };
 
   const filtered = businesses.filter((b) => {
+    if (selectedPincode && b.pincode !== selectedPincode) return false;
     if (deliveryFilter === "sent" && !b.is_sent) return false;
     if (deliveryFilter === "unsent" && b.is_sent) return false;
     if (!search) return true;
@@ -181,6 +192,13 @@ export default function DataTab({ activeProfile, onDataChanged }) {
     ].filter(Boolean).join(" ").toLowerCase();
     return str.includes(q);
   });
+
+  const availablePincodes = Array.from(
+    new Set([
+      ...statePincodes,
+      ...businesses.map((b) => b.pincode).filter(Boolean)
+    ])
+  ).sort();
 
   // Group by pincode: unsent first (sorted by id ASC = oldest first), then sent (id ASC)
   const grouped = {};
@@ -199,7 +217,7 @@ export default function DataTab({ activeProfile, onDataChanged }) {
   const groupedList = Object.values(grouped).sort((a, b) => (a.pincode || "").localeCompare(b.pincode || ""));
 
   const exportUrl = activeProfile 
-    ? getExportCsvUrl(activeProfile.slug, activeProfile.api_key, selectedState, selectedNiche)
+    ? getExportCsvUrl(activeProfile.slug, activeProfile.api_key, selectedState, selectedPincode)
     : "#";
 
   return (
@@ -354,16 +372,16 @@ export default function DataTab({ activeProfile, onDataChanged }) {
           </select>
         </div>
 
-        {/* Niche Filter */}
+        {/* Pincode Filter */}
         <div>
           <select
-            value={selectedNiche}
-            onChange={(e) => setSelectedNiche(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+            value={selectedPincode}
+            onChange={(e) => setSelectedPincode(e.target.value)}
+            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 font-mono"
           >
-            <option value="">All Niches</option>
-            {activeProfile?.niches && activeProfile.niches.map((n) => (
-              <option key={n} value={n}>{n}</option>
+            <option value="">All Pincodes</option>
+            {availablePincodes.map((pc) => (
+              <option key={pc} value={pc}>{pc}</option>
             ))}
           </select>
         </div>

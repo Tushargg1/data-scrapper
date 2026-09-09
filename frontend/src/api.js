@@ -233,10 +233,11 @@ export async function getProfileCoverage(slug, apiKey) {
   });
 }
 
-export function getExportCsvUrl(slug, apiKey, state, niche) {
+export function getExportCsvUrl(slug, apiKey, state, pincode, niche) {
   const base = getApiBaseUrl();
   const query = new URLSearchParams();
   if (state) query.append("state", state);
+  if (pincode) query.append("pincode", pincode);
   if (niche) query.append("niche", niche);
   return `${base}/api/profiles/${slug}/export/csv?${query.toString()}`;
 }

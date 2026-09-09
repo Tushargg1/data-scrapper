@@ -320,6 +320,7 @@ def profile_update_lead_status(
 def profile_export_csv(
     slug: str,
     state: Optional[str] = Query(None),
+    pincode: Optional[str] = Query(None),
     niche: Optional[str] = Query(None),
     has_phone: Optional[bool] = Query(None),
     has_website: Optional[bool] = Query(None),
@@ -329,7 +330,7 @@ def profile_export_csv(
     profile = require_profile_key(slug, x_api_key)
     df = get_businesses(
         profile_id=profile["id"],
-        state=state, niche=niche,
+        state=state, pincode=pincode, niche=niche,
         has_phone=has_phone, has_website=has_website,
         limit=200000
     )
@@ -338,7 +339,8 @@ def profile_export_csv(
     output = io.StringIO()
     df.to_csv(output, index=False)
     output.seek(0)
-    filename = f"{slug}_{state or 'all'}_{niche or 'all'}.csv".replace(" ", "_")
+    target_part = pincode or niche or 'all'
+    filename = f"{slug}_{state or 'all'}_{target_part}.csv".replace(" ", "_")
     return StreamingResponse(
         io.BytesIO(output.getvalue().encode()),
         media_type="text/csv",
