@@ -790,6 +790,48 @@ def get_businesses(profile_id: int = 1, state: str = None, pincode: str = None,
         conn.close()
 
 
+def count_businesses(profile_id: int = 1, state: str = None, pincode: str = None,
+                     niche: str = None, has_phone: bool = None, has_website: bool = None,
+                     lead_status: str = None) -> int:
+    """Return total count of businesses matching filters for pagination/infinite scroll."""
+    conn, is_mysql = get_connection()
+    try:
+        query = "SELECT COUNT(*) as cnt FROM businesses WHERE profile_id=?"
+        params = [profile_id]
+
+        if state:
+            query += " AND state=?"
+            params.append(state)
+        if pincode:
+            query += " AND pincode=?"
+            params.append(pincode)
+        if niche:
+            query += " AND niche=?"
+            params.append(niche)
+        if has_phone is True:
+            query += " AND phone NOT IN ('N/A', '')"
+        elif has_phone is False:
+            query += " AND (phone IN ('N/A', '') OR phone IS NULL)"
+
+        if has_website is True:
+            query += " AND website_available='Yes'"
+        elif has_website is False:
+            query += " AND website_available!='Yes'"
+
+        if lead_status:
+            query += " AND lead_status=?"
+            params.append(lead_status)
+
+        cur = execute_db(conn, is_mysql, query, params)
+        row = cur.fetchone()
+        if not row:
+            return 0
+        return row["cnt"] if isinstance(row, dict) else row[0]
+    finally:
+        conn.close()
+
+
+
 def get_business_by_id(biz_id: int) -> dict:
     conn, is_mysql = get_connection()
     try:

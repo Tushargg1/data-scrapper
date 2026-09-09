@@ -8,9 +8,17 @@ import { getBusinesses, getExportCsvUrl, getStates,
          startPhoneEnrichment, getEnrichmentStatus, stopEnrichment,
          clearProfileData } from "../api";
 
+const PAGE_SIZE = 150;
+
 export default function DataTab({ activeProfile, onDataChanged }) {
   const [businesses, setBusinesses] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const bottomSentinelRef = useRef(null);
+
   const [clearingData, setClearingData] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [search, setSearch] = useState("");
@@ -24,21 +32,51 @@ export default function DataTab({ activeProfile, onDataChanged }) {
   const [enrichMsg, setEnrichMsg] = useState("");
   const enrichPollRef = useRef(null);
 
-  const fetchRecords = async () => {
+  const fetchRecords = async (pageNum = 1, isInitial = false) => {
     if (!activeProfile) return;
-    setLoading(true);
+    if (isInitial) {
+      setLoading(true);
+      setPage(1);
+    } else {
+      setLoadingMore(true);
+    }
+
     try {
       const res = await getBusinesses(activeProfile.slug, activeProfile.api_key, {
-        limit: 300,
+        page: pageNum,
+        limit: PAGE_SIZE,
         state: selectedState || undefined,
         niche: selectedNiche || undefined
       });
-      setBusinesses(res.businesses || []);
+
+      const incoming = res.businesses || [];
+      const totalCount = res.total_records !== undefined ? res.total_records : incoming.length;
+      setTotalRecords(totalCount);
+
+      if (isInitial) {
+        setBusinesses(incoming);
+        setHasMore(incoming.length === PAGE_SIZE && (pageNum * PAGE_SIZE) < totalCount);
+      } else {
+        setBusinesses((prev) => {
+          const seen = new Set(prev.map((b) => b.id));
+          const newItems = incoming.filter((b) => !seen.has(b.id));
+          return [...prev, ...newItems];
+        });
+        setHasMore(incoming.length === PAGE_SIZE && (pageNum * PAGE_SIZE) < totalCount);
+      }
     } catch (err) {
       console.error("Failed to load businesses:", err);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
+  };
+
+  const loadNextPage = () => {
+    if (loading || loadingMore || !hasMore) return;
+    const nextPage = page + 1;
+    setPage(nextPage);
+    fetchRecords(nextPage, false);
   };
 
   useEffect(() => {
@@ -46,8 +84,27 @@ export default function DataTab({ activeProfile, onDataChanged }) {
   }, []);
 
   useEffect(() => {
-    fetchRecords();
+    fetchRecords(1, true);
   }, [activeProfile, selectedState, selectedNiche]);
+
+  // Infinite scroll observer: trigger loadNextPage when bottom sentinel appears
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loading && !loadingMore) {
+          loadNextPage();
+        }
+      },
+      { threshold: 0.1, rootMargin: "350px" }
+    );
+
+    const target = bottomSentinelRef.current;
+    if (target) observer.observe(target);
+
+    return () => {
+      if (target) observer.unobserve(target);
+    };
+  }, [hasMore, loading, loadingMore, page, activeProfile, selectedState, selectedNiche]);
 
   // Poll enrichment status if running
   useEffect(() => {
@@ -57,12 +114,13 @@ export default function DataTab({ activeProfile, onDataChanged }) {
         const st = await getEnrichmentStatus(activeProfile.slug, activeProfile.api_key);
         setEnrichStatus(st);
         if (st && st.status === "completed") {
-          fetchRecords(); // refresh records to show newly found phones
+          fetchRecords(1, true); // refresh records to show newly found phones
         }
       } catch (err) {
         // ignore poll errors
       }
     }, 2000);
+
     return () => clearInterval(enrichPollRef.current);
   }, [activeProfile]);
 
@@ -327,15 +385,19 @@ export default function DataTab({ activeProfile, onDataChanged }) {
       {/* Summary bar */}
       <div className="flex items-center justify-between text-xs text-slate-400 px-1">
         <span>
-          <strong className="text-white">{filtered.length}</strong> records across{" "}
+          Showing <strong className="text-white">{filtered.length}</strong>
+          {totalRecords > filtered.length && (
+            <span> of <strong className="text-emerald-400">{totalRecords}</strong></span>
+          )}
+          {" records across "}
           <strong className="text-white">{groupedList.length}</strong> pincode{groupedList.length !== 1 ? "s" : ""}
           {" · "}
           <span className="text-slate-500">{filtered.filter(b => !b.is_sent).length} unsent</span>
           {" · "}
           <span className="text-emerald-400">{filtered.filter(b => b.is_sent).length} sent</span>
         </span>
-        <button onClick={fetchRecords} className="hover:text-white flex items-center gap-1">
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        <button onClick={() => fetchRecords(1, true)} className="hover:text-white flex items-center gap-1 transition">
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
         </button>
       </div>
 
@@ -403,12 +465,41 @@ export default function DataTab({ activeProfile, onDataChanged }) {
               </div>
             </div>
           ))}
+
+          {/* Infinite Scroll Sentinel & Status */}
+          <div ref={bottomSentinelRef} className="pt-2">
+            {loadingMore && (
+              <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                <span>Loading more businesses as you scroll...</span>
+              </div>
+            )}
+
+            {!loading && !loadingMore && hasMore && (
+              <div className="p-4 text-center">
+                <button
+                  onClick={loadNextPage}
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 text-xs font-semibold transition inline-flex items-center gap-2 shadow-lg"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Load More (Loaded {filtered.length} of {totalRecords || '...'})</span>
+                </button>
+              </div>
+            )}
+
+            {!loading && !hasMore && businesses.length > 0 && (
+              <div className="py-6 text-center text-slate-500 text-xs">
+                ✓ All {totalRecords || filtered.length} records loaded across {groupedList.length} pincodes
+              </div>
+            )}
+          </div>
         </div>
       )}
 
     </div>
   );
 }
+
 
 function BusinessRow({ b, copiedId, onCopy }) {
   return (

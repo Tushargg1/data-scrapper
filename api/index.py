@@ -33,9 +33,10 @@ from database import (
     get_distinct_states, get_distinct_niches,
     register_api_user, get_user_by_code, get_all_api_users,
     update_user_status, get_and_mark_unsent_batch, get_batch_delivery_stats,
-    clear_all_data, get_covered_summary,
+    clear_all_data, get_covered_summary, count_businesses
 )
 from profiles_manager import create_new_profile, get_template_names, get_template
+
 from niches import ALL_NICHES, ALL_INDUSTRY_NICHES, LEAD_STATUSES
 from pincodes import get_states, get_pincodes_for_state
 from config import ADMIN_API_KEY, APP_NAME, APP_VERSION, API_PORT
@@ -253,7 +254,7 @@ def profile_businesses(
     has_website: Optional[bool] = Query(None),
     lead_status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=1000),
     x_api_key: str = Header(..., alias="X-API-Key"),
 ):
     """
@@ -268,12 +269,22 @@ def profile_businesses(
         has_phone=has_phone, has_website=has_website,
         lead_status=lead_status, page=page, limit=limit
     )
+    total_count = count_businesses(
+        profile_id=profile["id"],
+        state=state, pincode=pincode, niche=niche,
+        has_phone=has_phone, has_website=has_website,
+        lead_status=lead_status
+    )
     return {
         "profile": profile["name"],
-        "page": page, "limit": limit,
+        "page": page,
+        "limit": limit,
         "total_returned": len(df),
+        "total_records": total_count,
+        "has_more": (page * limit) < total_count,
         "businesses": df_to_records(df),
     }
+
 
 
 @app.get("/api/profiles/{slug}/businesses/{business_id}", tags=["Profile Data"])
