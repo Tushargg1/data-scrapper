@@ -7,6 +7,7 @@ import pymysql
 import os
 import json
 import pandas as pd
+import time
 from datetime import datetime
 
 # ── Database Connection Settings ──────────────────────────────────────────────
@@ -17,6 +18,9 @@ MYSQL_PASS = os.getenv("MYSQL_PASS") or ("AVNS_" + "oc1IMJI7aq4" + "ea6u1LIB")
 MYSQL_DB   = os.getenv("MYSQL_DB", "defaultdb")
 USE_MYSQL  = os.getenv("USE_MYSQL", "1") == "1"
 
+_last_mysql_fail_time = 0.0
+_mysql_is_healthy = False
+
 if os.getenv("VERCEL") == "1" or "VERCEL" in os.environ or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
     SQLITE_PATH = "/tmp/scraper_data.db"
 else:
@@ -24,28 +28,31 @@ else:
 
 
 def get_connection():
-    """Attempts MySQL connection first; falls back to SQLite if unreachable."""
-    if USE_MYSQL:
-        for attempt in range(2):
-            try:
-                conn = pymysql.connect(
-                    host=MYSQL_HOST,
-                    port=MYSQL_PORT,
-                    user=MYSQL_USER,
-                    password=MYSQL_PASS,
-                    database=MYSQL_DB,
-                    ssl={'ssl': True},
-                    cursorclass=pymysql.cursors.DictCursor,
-                    autocommit=True,
-                    connect_timeout=8
-                )
-                return conn, True
-            except Exception as e:
-                if attempt == 0:
-                    import time
-                    time.sleep(0.3)
-                else:
-                    print(f"[DB ERROR] MySQL connection failed: {e}")
+    """Attempts MySQL connection first; falls back to SQLite if unreachable with a 30s retry backoff."""
+    global _last_mysql_fail_time, _mysql_is_healthy
+    now = time.time()
+
+    # Only attempt MySQL if enabled and (healthy OR 30 seconds have passed since last failure)
+    if USE_MYSQL and (_mysql_is_healthy or (now - _last_mysql_fail_time > 30)):
+        try:
+            conn = pymysql.connect(
+                host=MYSQL_HOST,
+                port=MYSQL_PORT,
+                user=MYSQL_USER,
+                password=MYSQL_PASS,
+                database=MYSQL_DB,
+                ssl={'ssl': True},
+                cursorclass=pymysql.cursors.DictCursor,
+                autocommit=True,
+                connect_timeout=3
+            )
+            _mysql_is_healthy = True
+            return conn, True
+        except Exception as e:
+            if _mysql_is_healthy or _last_mysql_fail_time == 0.0:
+                print(f"[DB] MySQL unreachable ({e}). Falling back to SQLite.")
+            _mysql_is_healthy = False
+            _last_mysql_fail_time = now
 
     conn = sqlite3.connect(SQLITE_PATH)
     conn.row_factory = sqlite3.Row
@@ -684,10 +691,18 @@ def save_single_business(state: str, pincode: str, niche: str,
                 inserted = True
         else:
             cur = execute_db(conn, is_mysql, """
-                INSERT OR REPLACE INTO businesses
+                INSERT INTO businesses
                     (profile_id, state, pincode, niche, name, rating, reviews,
                      phone, phone_2, phone_3, website_available, website_link, maps_url, scraped_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(profile_id, maps_url) DO UPDATE SET
+                    phone = CASE WHEN (phone IS NULL OR phone='' OR phone='N/A') AND excluded.phone NOT IN ('N/A', '') THEN excluded.phone ELSE phone END,
+                    phone_2 = CASE WHEN (phone_2 IS NULL OR phone_2='') AND excluded.phone_2 NOT IN ('N/A', '') THEN excluded.phone_2 ELSE phone_2 END,
+                    website_available = CASE WHEN (website_available IS NULL OR website_available='' OR website_available='No') THEN excluded.website_available ELSE website_available END,
+                    website_link = CASE WHEN (website_link IS NULL OR website_link='' OR website_link='N/A') AND excluded.website_link NOT IN ('N/A', '') THEN excluded.website_link ELSE website_link END,
+                    rating = CASE WHEN (rating IS NULL OR rating='' OR rating='N/A') AND excluded.rating NOT IN ('N/A', '') THEN excluded.rating ELSE rating END,
+                    reviews = CASE WHEN (reviews IS NULL OR reviews='' OR reviews='N/A') AND excluded.reviews NOT IN ('N/A', '') THEN excluded.reviews ELSE reviews END,
+                    updated_at = excluded.scraped_at
             """, (
                 profile_id, state, pincode, niche,
                 name, rating, reviews,
@@ -1058,7 +1073,7 @@ def get_and_mark_unsent_batch(user_code: str, profile_id: int = None, limit: int
     conn, is_mysql = get_connection()
     try:
         now = datetime.now().isoformat()
-        query = "SELECT * FROM businesses WHERE is_sent=0"
+        query = "SELECT * FROM businesses WHERE (is_sent=0 OR is_sent IS NULL)"
         params = []
         if profile_id:
             query += " AND profile_id=?"
@@ -1132,8 +1147,8 @@ def get_batch_delivery_stats(profile_id: int = None) -> dict:
 
         total = q(f"SELECT COUNT(*) FROM businesses {pid_filter}", pid_args)
 
-        unsent_filter = (f"WHERE profile_id=? AND is_sent=0" if profile_id
-                         else "WHERE is_sent=0")
+        unsent_filter = (f"WHERE profile_id=? AND (is_sent=0 OR is_sent IS NULL)" if profile_id
+                         else "WHERE (is_sent=0 OR is_sent IS NULL)")
         unsent = q(f"SELECT COUNT(*) FROM businesses {unsent_filter}", pid_args)
 
         sent = total - unsent

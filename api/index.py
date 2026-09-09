@@ -14,9 +14,11 @@ Run with: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 Swagger:   http://localhost:8000/docs
 """
 import io
+import time
+import json
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Header, Request
+from fastapi import FastAPI, HTTPException, Depends, Query, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
@@ -33,13 +35,18 @@ from database import (
     get_distinct_states, get_distinct_niches,
     register_api_user, get_user_by_code, get_all_api_users,
     update_user_status, get_and_mark_unsent_batch, get_batch_delivery_stats,
-    clear_all_data, get_covered_summary, count_businesses
+    get_businesses_without_phone, clear_all_data, get_covered_summary,
+    count_businesses
 )
-from profiles_manager import create_new_profile, get_template_names, get_template
 
+from profiles_manager import create_new_profile, get_template_names, get_template
 from niches import ALL_NICHES, ALL_INDUSTRY_NICHES, LEAD_STATUSES
 from pincodes import get_states, get_pincodes_for_state
 from config import ADMIN_API_KEY, APP_NAME, APP_VERSION, API_PORT
+from phone_enricher import (
+    start_enrichment_thread, stop_enrichment,
+    get_enrich_status, is_enrichment_running,
+)
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -64,6 +71,17 @@ app.add_middleware(
 )
 
 init_db()
+
+import threading
+from scraper import ensure_playwright_installed
+
+def _warmup():
+    try:
+        ensure_playwright_installed()
+    except Exception as e:
+        print(f"[STARTUP] Playwright warmup error: {e}")
+
+threading.Thread(target=_warmup, daemon=True).start()
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -99,9 +117,24 @@ def df_to_records(df: pd.DataFrame) -> list:
 
 
 
+# ── Health Check (For UptimeRobot / Keep-Alive Bots) ──────────────────────────
+@app.api_route("/health", methods=["GET", "HEAD"], tags=["Info"])
+@app.api_route("/ping", methods=["GET", "HEAD"], tags=["Info"])
+def health(request: Request):
+    """Uptime bot health check endpoint — returns 200 OK for both GET and HEAD requests."""
+    return Response(
+        content=json.dumps({"status": "ok", "service": "data-scrapper", "timestamp": time.time()}),
+        status_code=200,
+        media_type="application/json"
+    )
+
+
 # ── Root ──────────────────────────────────────────────────────────────────────
-@app.get("/", tags=["Info"])
+@app.api_route("/", methods=["GET", "HEAD"], tags=["Info"])
 def root(request: Request):
+    if request.method == "HEAD":
+        return Response(status_code=200)
+
     from database import get_connection
     try:
         _, is_mysql = get_connection()
@@ -125,8 +158,10 @@ def root(request: Request):
     return RedirectResponse(url="https://data-scrapper-henna.vercel.app", status_code=302)
 
 
-@app.get("/api/info", tags=["Info"])
-def api_info():
+@app.api_route("/api/info", methods=["GET", "HEAD"], tags=["Info"])
+def api_info(request: Request):
+    if request.method == "HEAD":
+        return Response(status_code=200)
     from database import get_connection
     try:
         _, is_mysql = get_connection()
@@ -361,6 +396,64 @@ def profile_coverage(slug: str, x_api_key: str = Header(..., alias="X-API-Key"))
     """Get covered pincode/niche combinations for this profile."""
     profile = require_profile_key(slug, x_api_key)
     return get_covered_summary(profile_id=profile["id"])
+
+
+
+# PHONE ENRICHMENT  (per-profile key or admin key)
+# ════════════════════════════════════════════════════════════════════════════
+
+class EnrichRequest(BaseModel):
+    business_ids: list = None   # optional list of IDs; if omitted → all no-phone businesses
+
+
+@app.post("/api/profiles/{slug}/enrich-phones", tags=["Phone Enrichment"])
+def start_enrich(slug: str, body: EnrichRequest = None,
+                 x_api_key: str = Header(..., alias="X-API-Key")):
+    """
+    Start phone enrichment for businesses with no phone number.
+    Searches Google, JustDial, and Sulekha in the background.
+    Optional body: { "business_ids": [1, 2, 3] } to enrich specific businesses only.
+    """
+    profile = require_profile_key(slug, x_api_key)
+    if is_enrichment_running():
+        status = get_enrich_status()
+        return {
+            "success": False,
+            "message": "Enrichment already running.",
+            "status": status
+        }
+    business_ids = (body.business_ids if body else None) or None
+    # Count how many businesses will be enriched
+    no_phone = get_businesses_without_phone(profile["id"])
+    if business_ids:
+        count = len([b for b in no_phone if b["id"] in set(business_ids)])
+    else:
+        count = len(no_phone)
+    if count == 0:
+        return {"success": False, "message": "No businesses without phone numbers found."}
+    err = start_enrichment_thread(profile["id"], business_ids)
+    if err:
+        return {"success": False, "message": err}
+    return {
+        "success": True,
+        "message": f"Enrichment started for {count} businesses.",
+        "total": count
+    }
+
+
+@app.get("/api/profiles/{slug}/enrich-phones/status", tags=["Phone Enrichment"])
+def enrich_status(slug: str, x_api_key: str = Header(..., alias="X-API-Key")):
+    """Get current phone enrichment progress."""
+    require_profile_key(slug, x_api_key)
+    return get_enrich_status()
+
+
+@app.post("/api/profiles/{slug}/enrich-phones/stop", tags=["Phone Enrichment"])
+def stop_enrich(slug: str, x_api_key: str = Header(..., alias="X-API-Key")):
+    """Stop the running phone enrichment job."""
+    require_profile_key(slug, x_api_key)
+    stop_enrichment()
+    return {"success": True, "message": "Stop signal sent."}
 
 
 # ════════════════════════════════════════════════════════════════════════════
