@@ -4,7 +4,10 @@ import {
   Phone, Globe, Star, ExternalLink, AlertCircle, CheckCircle2, 
   Loader2, RefreshCw, Layers 
 } from "lucide-react";
-import { getStates, getPincodes, startScraping, getScrapeStatus, stopScraping, getProfileCoverage } from "../api";
+import { 
+  getStates, getPincodes, startScraping, getScrapeStatus, stopScraping, 
+  getProfileCoverage, getScrapeSession, resumeScrape 
+} from "../api";
 
 export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab }) {
   const [states, setStates] = useState([]);
@@ -24,6 +27,8 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
   const [jobStatus, setJobStatus] = useState(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
+  const [savedSession, setSavedSession] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
 
   // Coverage tracking
@@ -32,6 +37,7 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
   const [loadingCoverage, setLoadingCoverage] = useState(false);
 
   const pollIntervalRef = useRef(null);
+
 
   // Load States on mount
   useEffect(() => {
@@ -104,12 +110,41 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
     }
   };
 
+  const checkSavedSession = async () => {
+    if (!activeProfile) return;
+    try {
+      const s = await getScrapeSession(activeProfile.slug, activeProfile.api_key);
+      setSavedSession(s && s.has_session && s.remaining_jobs > 0 ? s : null);
+    } catch (e) {
+      setSavedSession(null);
+    }
+  };
+
   useEffect(() => {
     pollIntervalRef.current = setInterval(fetchStatus, 2000);
+    checkSavedSession();
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
-  }, []);
+  }, [activeProfile]);
+
+  const handleResumeScrape = async () => {
+    if (!activeProfile) return;
+    setIsResuming(true);
+    setErrorMsg("");
+    try {
+      await resumeScrape(activeProfile.slug, activeProfile.api_key);
+      setSavedSession(null);
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = setInterval(fetchStatus, 1200);
+      fetchStatus();
+    } catch (err) {
+      setErrorMsg(err.message || "Failed to resume scraper.");
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
 
   const handleTogglePincode = (pc) => {
     setSelectedPincodes((prev) =>
@@ -233,6 +268,18 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
 
         {/* Global Controls */}
         <div className="flex items-center gap-3">
+          {!isRunning && savedSession && savedSession.remaining_jobs > 0 && (
+            <button
+              onClick={handleResumeScrape}
+              disabled={isResuming || isStarting}
+              title={`Resume unfinished scrape in ${savedSession.state}: ${savedSession.remaining_jobs} jobs remaining out of ${savedSession.total_jobs}`}
+              className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-extrabold px-4 py-2.5 rounded-xl shadow-xl shadow-amber-500/25 transition flex items-center gap-2 border border-amber-400"
+            >
+              {isResuming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
+              <span>Resume ({savedSession.remaining_jobs} left)</span>
+            </button>
+          )}
+
           {isRunning ? (
             <button
               onClick={handleStopScrape}
@@ -254,6 +301,29 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
           )}
         </div>
       </div>
+
+      {/* Unfinished Session Banner */}
+      {!isRunning && savedSession && savedSession.remaining_jobs > 0 && (
+        <div className="bg-amber-950/40 border border-amber-500/40 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200">
+          <div className="flex items-center gap-3">
+            <span className="text-xl">⚡</span>
+            <div>
+              <strong className="text-white">Interrupted Scrape Session Detected ({savedSession.state})</strong>
+              <p className="text-slate-400 text-[11px] mt-0.5">
+                {savedSession.done_jobs} done, <span className="text-amber-300 font-semibold">{savedSession.remaining_jobs} remaining</span>. You can continue right where it broke.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleResumeScrape}
+            disabled={isResuming || isStarting}
+            className="shrink-0 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 transition disabled:opacity-50 text-xs"
+          >
+            {isResuming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>▶ Continue Extraction</span>}
+          </button>
+        </div>
+      )}
+
 
       {errorMsg && (
         <div className={`p-4 rounded-xl text-xs flex items-center justify-between gap-2 ${

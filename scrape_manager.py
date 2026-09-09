@@ -5,8 +5,13 @@ saves businesses instantly to Aiven MySQL, records job history, and provides liv
 """
 import threading
 import time
-from database import save_single_business, mark_as_scraped, is_already_scraped, get_profile_by_slug, get_all_profiles
+from database import (
+    save_single_business, mark_as_scraped, is_already_scraped,
+    get_profile_by_slug, get_all_profiles,
+    save_scrape_session, complete_scrape_session, get_scrape_session
+)
 from scraper import scrape_google_maps
+
 
 scrape_lock = threading.Lock()
 stop_scrape_event = threading.Event()
@@ -33,10 +38,48 @@ current_scrape_job = {
 active_thread = None
 
 
+def _launch_browser_and_context(playwright_inst):
+    """Launch clean Chromium instance with consent cookies pre-set."""
+    browser = playwright_inst.chromium.launch(
+        headless=True,
+        args=[
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--blink-settings=imagesEnabled=false',
+            '--js-flags=--max-old-space-size=96'
+        ]
+    )
+    context = browser.new_context(
+        viewport={'width': 800, 'height': 600},
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
+    )
+    try:
+        context.add_cookies([
+            {'name': 'SOCS', 'value': 'CAESHAgBEhJnd3NfMjAyNDA2MTAtMF9SQzIaAmVuIAEaBgiA_L20Bg', 'domain': '.google.com', 'path': '/'},
+            {'name': 'CONSENT', 'value': 'PENDING+987', 'domain': '.google.com', 'path': '/'}
+        ])
+    except Exception:
+        pass
+    return browser, context
+
+
 def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_scrolls: int, rescan_covered: bool = False):
     global current_scrape_job
     stop_scrape_event.clear()
     total_jobs = len(pincodes) * len(niches)
+
+    # Save active scrape session to DB so it can be resumed after reboot/crash
+    try:
+        save_scrape_session(profile_id, state, pincodes, niches, max_scrolls, is_active=1)
+    except Exception as e:
+        print(f"[SCRAPER] Warning saving session: {e}")
 
     # Get profile name
     p_name = f"Profile #{profile_id}"
@@ -72,26 +115,7 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu',
-                    '--disable-software-rasterizer',
-                    '--blink-settings=imagesEnabled=false',
-                    '--js-flags=--max-old-space-size=96'
-                ]
-            )
-            context = browser.new_context(
-                viewport={'width': 800, 'height': 600},
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                )
-            )
+            browser, context = _launch_browser_and_context(p)
 
             try:
                 for pc in pincodes:
@@ -103,7 +127,6 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
 
                         # If already scraped and user chose not to re-scrape, skip and continue
                         if not rescan_covered and is_already_scraped(pc, niche, profile_id):
-                            print(f"[SCRAPER] Already covered {niche} in {pc}. Continuing to next...")
                             with scrape_lock:
                                 current_scrape_job["done_jobs"] += 1
                             continue
@@ -138,38 +161,72 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
                                 with scrape_lock:
                                     current_scrape_job["saved"] += 1
 
-                        try:
-                            df = scrape_google_maps(
-                                niche=niche,
-                                pincode=pc,
-                                max_scrolls=max_scrolls,
-                                on_item_scraped=on_item_scraped,
-                                should_stop=lambda: stop_scrape_event.is_set(),
-                                context=context,
-                                profile_id=profile_id
-                            )
-                            count = len(df) if df is not None and not df.empty else 0
-                            mark_as_scraped(state, pc, niche, count, profile_id)
-                        except Exception as ex:
-                            print(f"[SCRAPER] Error on {niche} in {pc}: {ex}")
+                        # Self-healing retry loop: up to 2 attempts per query
+                        max_query_attempts = 2
+                        query_success = False
+
+                        for attempt in range(max_query_attempts):
+                            if stop_scrape_event.is_set():
+                                break
+                            try:
+                                df = scrape_google_maps(
+                                    niche=niche,
+                                    pincode=pc,
+                                    max_scrolls=max_scrolls,
+                                    on_item_scraped=on_item_scraped,
+                                    should_stop=lambda: stop_scrape_event.is_set(),
+                                    context=context,
+                                    profile_id=profile_id
+                                )
+                                count = len(df) if df is not None and not df.empty else 0
+                                mark_as_scraped(state, pc, niche, count, profile_id)
+                                query_success = True
+                                break
+                            except Exception as ex:
+                                print(f"[SCRAPER] Error on {niche} in {pc} (attempt {attempt+1}/{max_query_attempts}): {ex}")
+                                # Re-heal browser context if damaged
+                                try:
+                                    context.close()
+                                    browser.close()
+                                except Exception:
+                                    pass
+                                time.sleep(1)
+                                try:
+                                    browser, context = _launch_browser_and_context(p)
+                                except Exception as err:
+                                    print(f"[SCRAPER] Could not relaunch browser: {err}")
+
+                        if not query_success:
                             with scrape_lock:
-                                current_scrape_job["error"] = f"{pc} ({niche}): {str(ex)[:150]}"
+                                current_scrape_job["error"] = f"Skipped {pc} ({niche}) after retries."
 
                         with scrape_lock:
                             current_scrape_job["done_jobs"] += 1
 
             finally:
-                browser.close()
+                try:
+                    context.close()
+                    browser.close()
+                except Exception:
+                    pass
 
         with scrape_lock:
             current_scrape_job["status"] = "stopped" if stop_scrape_event.is_set() else "completed"
             current_scrape_job["ended_at"] = time.time()
+
+        # Mark session finished if completed without stop
+        if not stop_scrape_event.is_set():
+            try:
+                complete_scrape_session(profile_id)
+            except Exception:
+                pass
 
     except Exception as e:
         with scrape_lock:
             current_scrape_job["status"] = "error"
             current_scrape_job["error"] = str(e)
             current_scrape_job["ended_at"] = time.time()
+
 
 
 def start_scraping(profile_id: int, state: str, pincodes: list, niches: list, max_scrolls: int = 3, rescan_covered: bool = False) -> dict:
@@ -220,3 +277,60 @@ def get_scrape_status() -> dict:
             data["elapsed_seconds"] = 0
 
         return data
+
+
+def resume_scraping(profile_id: int) -> dict:
+    """Resume a previous or interrupted scrape job from where it left off."""
+    session = get_scrape_session(profile_id)
+    if not session:
+        return {"success": False, "message": "No saved scrape session found for this profile."}
+
+    pincodes = session.get("pincodes", [])
+    niches = session.get("niches", [])
+    state = session.get("state", "")
+    max_scrolls = session.get("max_scrolls", 3)
+
+    if not pincodes or not niches:
+        return {"success": False, "message": "Saved session has no pincodes or niches."}
+
+    # Start with rescan_covered=False so it automatically skips covered ones and continues
+    return start_scraping(
+        profile_id=profile_id,
+        state=state,
+        pincodes=pincodes,
+        niches=niches,
+        max_scrolls=max_scrolls,
+        rescan_covered=False
+    )
+
+
+def get_last_session_info(profile_id: int) -> dict:
+    """Return info about saved session, including total and remaining jobs."""
+    session = get_scrape_session(profile_id)
+    if not session:
+        return {"has_session": False}
+
+    pincodes = session.get("pincodes", [])
+    niches = session.get("niches", [])
+    total_combos = len(pincodes) * len(niches)
+    
+    # Count how many are already finished
+    done_count = 0
+    for pc in pincodes:
+        for n in niches:
+            if is_already_scraped(pc, n, profile_id):
+                done_count += 1
+
+    remaining = total_combos - done_count
+    return {
+        "has_session": True,
+        "is_active": session.get("is_active", 0) == 1,
+        "state": session.get("state", ""),
+        "total_pincodes": len(pincodes),
+        "total_niches": len(niches),
+        "total_jobs": total_combos,
+        "done_jobs": done_count,
+        "remaining_jobs": remaining,
+        "updated_at": session.get("updated_at", "")
+    }
+

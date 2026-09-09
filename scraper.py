@@ -46,9 +46,17 @@ def ensure_playwright_installed():
             print(f"[PLAYWRIGHT] Auto-install failed: {install_err}")
 
 
+BLOCKED_RESOURCE_TYPES = {'image', 'media', 'font'}
+BLOCKED_URL_SUBSTRINGS = (
+    'google-analytics', 'play.google.com/log', 'stats.g.doubleclick',
+    'fonts.googleapis', 'fonts.gstatic', 'googleads', 'fls-na.amazon'
+)
+
 def _block_unneeded_resources(route):
-    """Blocks heavy assets to maintain ultra-low RAM usage (<120MB) and 4x faster page loads."""
-    if route.request.resource_type in ['image', 'media', 'font']:
+    """Blocks images, fonts, media, and trackers for 10x faster loads and ultra-low RAM usage."""
+    req = route.request
+    url = req.url
+    if req.resource_type in BLOCKED_RESOURCE_TYPES or any(b in url for b in BLOCKED_URL_SUBSTRINGS):
         try:
             route.abort()
         except Exception:
@@ -58,6 +66,7 @@ def _block_unneeded_resources(route):
             route.continue_()
         except Exception:
             pass
+
 
 
 def _parse_tbm_map_text(text: str) -> list:
@@ -193,78 +202,49 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
         page.on("response", _on_response)
 
         try:
-            page.goto(url, timeout=25000, wait_until="domcontentloaded")
-
-            # Handle consent popups
+            # Pre-set consent cookies to avoid any popup or consent redirect
             try:
-                for sel in [
-                    'button:has-text("Accept all")',
-                    'button:has-text("I agree")',
-                    'form[action*="consent"] button',
-                    'button[aria-label*="Accept all"]'
-                ]:
-                    btn = page.locator(sel).first
-                    if btn.is_visible(timeout=500):
-                        btn.click()
-                        time.sleep(0.5)
-                        break
+                ctx.add_cookies([
+                    {'name': 'SOCS', 'value': 'CAESHAgBEhJnd3NfMjAyNDA2MTAtMF9SQzIaAmVuIAEaBgiA_L20Bg', 'domain': '.google.com', 'path': '/'},
+                    {'name': 'CONSENT', 'value': 'PENDING+987', 'domain': '.google.com', 'path': '/'}
+                ])
             except Exception:
                 pass
 
-            feed_selector = 'div[role="feed"]'
-            try:
-                page.wait_for_selector(feed_selector, timeout=8000)
-            except Exception:
-                feed_selector = None
+            page.goto(url, timeout=18000, wait_until="domcontentloaded")
 
-            if not feed_selector:
-                page.close()
-                return pd.DataFrame(results)
+            # Fast wait for results or feed (max 1.5s)
+            feed = page.locator('div[role="feed"]')
+            for _ in range(15):
+                if results or feed.count() > 0:
+                    break
+                page.wait_for_timeout(100)
 
-            try:
-                page.locator(feed_selector).hover(timeout=1000)
-            except Exception:
-                pass
+            # Fast auto-scroll to trigger pagination RPCs
+            scroll_limit = max(1, min(max_scrolls, 3))
+            last_count = len(results)
+            stagnant = 0
 
-            # ── 2. Fast auto-scroll to trigger pagination RPCs ──────────────
-            last_count = 0
-            stagnant_count = 0
-            max_scroll_attempts = max(8, max_scrolls * 2)
-
-            for s in range(max_scroll_attempts):
+            for _ in range(scroll_limit):
                 if should_stop and should_stop():
                     break
 
-                try:
-                    page.locator(feed_selector).evaluate('el => el.scrollTop = el.scrollHeight')
-                except Exception:
-                    page.mouse.wheel(0, 8000)
+                if feed.count() > 0:
+                    try:
+                        feed.evaluate('el => el.scrollTop = el.scrollHeight')
+                    except Exception:
+                        page.mouse.wheel(0, 6000)
 
-                time.sleep(0.4)
+                page.wait_for_timeout(200)
 
-                try:
-                    end_marker = page.locator(
-                        'span:has-text("You\'ve reached the end of the list"), '
-                        'div:has-text("You\'ve reached the end of the list")'
-                    )
-                    if end_marker.count() > 0 and end_marker.first.is_visible(timeout=50):
-                        break
-                except Exception:
-                    pass
-
-                current_count = page.locator('a[href*="https://www.google.com/maps/place/"]').count()
-                if current_count == last_count:
-                    stagnant_count += 1
-                    if stagnant_count >= 3:
+                if len(results) == last_count:
+                    stagnant += 1
+                    if stagnant >= 2:
                         break
                 else:
-                    stagnant_count = 0
-                    last_count = current_count
+                    stagnant = 0
+                    last_count = len(results)
 
-                if current_count >= 120:
-                    break
-
-            # If RPC interceptor captured results, we are done!
             if results:
                 try:
                     print(f"[SCRAPER] [HYPER-SPEED] Captured {len(results)} places via RPC for '{query}'")

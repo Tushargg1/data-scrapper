@@ -149,6 +149,20 @@ export async function stopScraping() {
   });
 }
 
+export async function getScrapeSession(slug, apiKey) {
+  return request(`/api/profiles/${slug}/scrape/session`, {
+    headers: apiKey ? { "X-API-Key": apiKey } : {}
+  });
+}
+
+export async function resumeScrape(slug, apiKey) {
+  return request(`/api/profiles/${slug}/scrape/resume`, {
+    method: "POST",
+    headers: apiKey ? { "X-API-Key": apiKey } : {}
+  });
+}
+
+
 // ── Phone Enrichment ─────────────────────────────────────────────────────────
 export async function startPhoneEnrichment(slug, apiKey, businessIds = null) {
   return request(`/api/profiles/${slug}/enrich-phones`, {

@@ -140,6 +140,19 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
 
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS active_scrape_session (
+                profile_id INT PRIMARY KEY,
+                state VARCHAR(100) NOT NULL,
+                pincodes_json LONGTEXT NOT NULL,
+                niches_json LONGTEXT NOT NULL,
+                max_scrolls INT DEFAULT 3,
+                is_active INT DEFAULT 1,
+                updated_at VARCHAR(100) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+
         # Auto-seed default profile if empty
         try:
             cur.execute("SELECT COUNT(*) as cnt FROM profiles")
@@ -235,6 +248,18 @@ def init_db():
                 sent_at     TEXT NOT NULL
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS active_scrape_session (
+                profile_id   INTEGER PRIMARY KEY,
+                state        TEXT NOT NULL,
+                pincodes_json TEXT NOT NULL,
+                niches_json   TEXT NOT NULL,
+                max_scrolls  INTEGER DEFAULT 3,
+                is_active    INTEGER DEFAULT 1,
+                updated_at   TEXT NOT NULL
+            )
+        """)
+
 
         def _add_col(table, col, col_def):
             try:
@@ -454,6 +479,50 @@ def mark_as_scraped(state: str, pincode: str, niche: str,
         if not is_mysql: conn.commit()
     finally:
         conn.close()
+
+
+def save_scrape_session(profile_id: int, state: str, pincodes: list, niches: list, max_scrolls: int = 3, is_active: int = 1):
+    """Save the active/last scrape configuration to DB so it can resume after crashes/reboots."""
+    conn, is_mysql = get_connection()
+    try:
+        now = datetime.now().isoformat()
+        pincodes_json = json.dumps(pincodes)
+        niches_json = json.dumps(niches)
+        execute_db(conn, is_mysql, """
+            INSERT OR REPLACE INTO active_scrape_session
+                (profile_id, state, pincodes_json, niches_json, max_scrolls, is_active, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (profile_id, state, pincodes_json, niches_json, max_scrolls, is_active, now))
+        if not is_mysql: conn.commit()
+    finally:
+        conn.close()
+
+
+def get_scrape_session(profile_id: int = 1) -> dict:
+    """Retrieve saved scrape session to see remaining work or resume."""
+    conn, is_mysql = get_connection()
+    try:
+        cur = execute_db(conn, is_mysql, "SELECT * FROM active_scrape_session WHERE profile_id=?", (profile_id,))
+        r = cur.fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        d["pincodes"] = json.loads(d.get("pincodes_json") or "[]")
+        d["niches"] = json.loads(d.get("niches_json") or "[]")
+        return d
+    finally:
+        conn.close()
+
+
+def complete_scrape_session(profile_id: int = 1):
+    """Mark session as completed."""
+    conn, is_mysql = get_connection()
+    try:
+        execute_db(conn, is_mysql, "UPDATE active_scrape_session SET is_active=0 WHERE profile_id=?", (profile_id,))
+        if not is_mysql: conn.commit()
+    finally:
+        conn.close()
+
 
 
 # ── Business Data ─────────────────────────────────────────────────────────────

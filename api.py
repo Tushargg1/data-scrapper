@@ -659,3 +659,27 @@ def api_scrape_stop():
     res = stop_scraping()
     return res
 
+
+@app.get("/api/profiles/{slug}/scrape/session", tags=["Scraping Engine"])
+def api_scrape_session(slug: str):
+    """Check if there is a saved or interrupted scrape session that can be resumed."""
+    p = get_profile_by_slug(slug)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"Profile '{slug}' not found.")
+    from scrape_manager import get_last_session_info
+    return get_last_session_info(p["id"])
+
+
+@app.post("/api/profiles/{slug}/scrape/resume", tags=["Scraping Engine"])
+def api_scrape_resume(slug: str):
+    """Resume an interrupted scrape job from where it left off, skipping already covered pincodes."""
+    p = get_profile_by_slug(slug)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"Profile '{slug}' not found.")
+    from scrape_manager import resume_scraping
+    res = resume_scraping(p["id"])
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
+
+
