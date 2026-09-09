@@ -441,13 +441,20 @@ def is_already_scraped(pincode: str, niche: str, profile_id: int = 1) -> bool:
             (profile_id, pincode, niche)
         )
         row = cur.fetchone()
-        return row is not None
+        if row is not None:
+            return True
+        # Also check businesses table: if businesses exist with this pincode & niche for this profile
+        cur2 = execute_db(conn, is_mysql,
+            "SELECT id FROM businesses WHERE profile_id=? AND pincode=? AND niche=? LIMIT 1",
+            (profile_id, pincode, niche)
+        )
+        return cur2.fetchone() is not None
     finally:
         conn.close()
 
 
 def get_covered_summary(profile_id: int = 1) -> dict:
-    """Return map of {pincode: [niches...]} and list of covered pincodes for a profile."""
+    """Return map of {pincode: [niches...]}, list of covered pincodes, and business counts for a profile."""
     conn, is_mysql = get_connection()
     try:
         cur = execute_db(conn, is_mysql, """
@@ -465,10 +472,40 @@ def get_covered_summary(profile_id: int = 1) -> dict:
                 pincode_map[pc] = []
             if niche not in pincode_map[pc]:
                 pincode_map[pc].append(niche)
+
+        # Merge from businesses table so completed pincodes are never lost even if scraped_jobs resets
+        cur2 = execute_db(conn, is_mysql, """
+            SELECT pincode, COUNT(*) as cnt
+            FROM businesses 
+            WHERE profile_id=?
+            GROUP BY pincode
+        """, (profile_id,))
+        biz_counts = {}
+        for r in cur2.fetchall():
+            pc = str(r["pincode"])
+            cnt = r["cnt"] if isinstance(r, dict) else r[1]
+            biz_counts[pc] = cnt
+            if pc not in pincode_map:
+                pincode_map[pc] = []
+
+        cur3 = execute_db(conn, is_mysql, """
+            SELECT DISTINCT pincode, niche
+            FROM businesses 
+            WHERE profile_id=?
+        """, (profile_id,))
+        for r in cur3.fetchall():
+            pc = str(r["pincode"])
+            niche = r["niche"] if isinstance(r, dict) else r[1]
+            if pc not in pincode_map:
+                pincode_map[pc] = []
+            if niche and niche not in pincode_map[pc]:
+                pincode_map[pc].append(niche)
+
         return {
             "total_jobs": len(rows),
-            "covered_pincodes": list(pincode_map.keys()),
-            "pincode_niches": pincode_map
+            "covered_pincodes": sorted(list(pincode_map.keys())),
+            "pincode_niches": pincode_map,
+            "pincode_counts": biz_counts
         }
     finally:
         conn.close()
