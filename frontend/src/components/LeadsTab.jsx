@@ -24,6 +24,8 @@ export default function LeadsTab({ activeProfile }) {
   const [hasPhone, setHasPhone] = useState(null);
   const [hasWeb, setHasWeb] = useState(null);
   const [selectedStatus, setSelectedStatus] = useState("");
+  // Hide "🆕 New Lead" by default — CRM only shows actioned leads
+  const [hideNewLeads, setHideNewLeads] = useState(true);
 
   // Editing notes modal
   const [editingLead, setEditingLead] = useState(null);
@@ -35,7 +37,7 @@ export default function LeadsTab({ activeProfile }) {
     setLoading(true);
     try {
       const params = {
-        limit: 150,
+        limit: 300,
         has_phone: hasPhone,
         has_website: hasWeb,
         lead_status: selectedStatus || undefined
@@ -52,6 +54,7 @@ export default function LeadsTab({ activeProfile }) {
   useEffect(() => {
     fetchLeads();
   }, [activeProfile, hasPhone, hasWeb, selectedStatus]);
+
 
   const handleStatusChange = async (bizId, newStatus, currentNotes) => {
     try {
@@ -81,13 +84,17 @@ export default function LeadsTab({ activeProfile }) {
   };
 
   const filteredLeads = leads.filter((b) => {
+    // Hide "New Lead" entries by default — they go to batch delivery, not CRM
+    if (hideNewLeads && b.lead_status === "🆕 New Lead") return false;
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     const txt = [
-      b.name, b.niche, b.phone, b.phone_2, b.pincode, b.state, b.notes
+      b.name, b.niche, b.phone, b.phone_2, b.pincode, b.state, b.notes, b.lead_status
     ].filter(Boolean).join(" ").toLowerCase();
     return txt.includes(q);
   });
+
+  const newLeadCount = leads.filter(b => b.lead_status === "🆕 New Lead").length;
 
   return (
     <div className="space-y-6">
@@ -104,9 +111,26 @@ export default function LeadsTab({ activeProfile }) {
             </p>
           </div>
 
-          <div className="text-xs text-slate-400 font-mono">
-            Loaded: <strong className="text-emerald-400">{filteredLeads.length} leads</strong>
+        <div className="flex flex-col items-end gap-1">
+            <div className="text-xs text-slate-400 font-mono">
+              Showing: <strong className="text-emerald-400">{filteredLeads.length} actioned leads</strong>
+            </div>
+            {newLeadCount > 0 && (
+              <button
+                onClick={() => setHideNewLeads(h => !h)}
+                className={`text-[10px] px-2.5 py-1 rounded-full border font-semibold transition ${
+                  hideNewLeads
+                    ? "bg-slate-800 border-slate-600 text-slate-400 hover:border-amber-500 hover:text-amber-300"
+                    : "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                }`}
+              >
+                {hideNewLeads
+                  ? `+ Show ${newLeadCount} New Lead${newLeadCount !== 1 ? "s" : ""} (queued for delivery)`
+                  : `Hide ${newLeadCount} New Lead${newLeadCount !== 1 ? "s" : ""}`}
+              </button>
+            )}
           </div>
+
         </div>
 
         {/* Filters Row */}

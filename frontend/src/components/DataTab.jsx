@@ -124,6 +124,22 @@ export default function DataTab({ activeProfile, onDataChanged }) {
     return str.includes(q);
   });
 
+  // Group by pincode: unsent first (sorted by id ASC = oldest first), then sent (id ASC)
+  const grouped = {};
+  filtered.forEach((b) => {
+    const key = `${b.pincode}||${b.state}`;
+    if (!grouped[key]) grouped[key] = { pincode: b.pincode, state: b.state, unsent: [], sent: [] };
+    if (b.is_sent) grouped[key].sent.push(b);
+    else grouped[key].unsent.push(b);
+  });
+  // Sort each group internally by id ASC (oldest scraped at top for unsent, bottom for sent)
+  Object.values(grouped).forEach(g => {
+    g.unsent.sort((a, b) => a.id - b.id);
+    g.sent.sort((a, b) => a.id - b.id);
+  });
+  // Sort pincode groups by pincode number
+  const groupedList = Object.values(grouped).sort((a, b) => (a.pincode || "").localeCompare(b.pincode || ""));
+
   const exportUrl = activeProfile 
     ? getExportCsvUrl(activeProfile.slug, activeProfile.api_key, selectedState, selectedNiche)
     : "#";
@@ -138,7 +154,7 @@ export default function DataTab({ activeProfile, onDataChanged }) {
             <span>📋</span> Data Explorer & Export
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Browse verified business records from Aiven MySQL and download high-resolution CSV datasets.
+            Grouped by pincode — unsent leads on top (oldest first), sent leads at bottom.
           </p>
         </div>
 
@@ -198,25 +214,18 @@ export default function DataTab({ activeProfile, onDataChanged }) {
               )}
             </h3>
             {enrichStatus && (
-              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                enrichStatus.status === "running" ? "bg-violet-900 text-violet-300" :
-                enrichStatus.status === "completed" ? "bg-emerald-900 text-emerald-300" :
-                enrichStatus.status === "error" ? "bg-red-900 text-red-300" :
-                "bg-slate-800 text-slate-400"
-              }`}>
-                {enrichStatus.status?.toUpperCase()}
-              </span>
+              <button onClick={() => setEnrichStatus(null)} className="text-slate-500 hover:text-white text-xs">✕</button>
             )}
           </div>
 
           {enrichMsg && (
-            <p className="text-xs text-slate-400">{enrichMsg}</p>
+            <p className="text-xs text-slate-300">{enrichMsg}</p>
           )}
 
-          {enrichStatus && enrichStatus.total > 0 && (
+          {enrichStatus && (
             <>
               {/* Progress bar */}
-              <div className="w-full bg-slate-800 rounded-full h-2">
+              <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
                 <div
                   className="bg-gradient-to-r from-violet-500 to-purple-500 h-2 rounded-full transition-all duration-500"
                   style={{ width: `${enrichStatus.progress_percent || 0}%` }}
@@ -315,155 +324,178 @@ export default function DataTab({ activeProfile, onDataChanged }) {
         </div>
       </div>
 
-      {/* Data Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400">
-          <span>Showing <strong>{filtered.length}</strong> matching records</span>
-          <button onClick={fetchRecords} className="hover:text-white flex items-center gap-1">
-            <RefreshCw className="w-3.5 h-3.5" /> Refresh
-          </button>
-        </div>
-
-        {loading ? (
-          <div className="p-16 text-center text-slate-400 text-xs">
-            <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-400" />
-            Loading business data...
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="p-16 text-center text-slate-500 text-xs">
-            No businesses found in database matching your criteria.
-          </div>
-        ) : (
-          <div className="overflow-x-auto max-h-[600px]">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead className="bg-slate-950 text-slate-400 sticky top-0 z-10 border-b border-slate-800">
-                <tr>
-                  <th className="p-3.5 font-semibold">Delivery Status</th>
-                  <th className="p-3.5 font-semibold">Business Name</th>
-                  <th className="p-3.5 font-semibold">Niche</th>
-                  <th className="p-3.5 font-semibold">Location</th>
-                  <th className="p-3.5 font-semibold">Phone Numbers</th>
-                  <th className="p-3.5 font-semibold">Rating / Reviews</th>
-                  <th className="p-3.5 font-semibold">Website</th>
-                  <th className="p-3.5 font-semibold">Google Maps</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                {filtered.map((b) => (
-                  <tr
-                    key={b.id}
-                    className={`transition ${
-                      b.is_sent
-                        ? "bg-emerald-950/30 hover:bg-emerald-900/40 border-l-4 border-l-emerald-500 shadow-sm shadow-emerald-500/5"
-                        : "hover:bg-slate-850/50 border-l-4 border-l-transparent"
-                    }`}
-                  >
-                    <td className="p-3.5 whitespace-nowrap">
-                      {b.is_sent ? (
-                        <span
-                          title={b.sent_to_user_code ? `Delivered to ${b.sent_to_user_code} on ${b.sent_at || ''}` : "Delivered to telecaller"}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 font-bold text-[11px] shadow-sm shadow-emerald-500/10"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                          <span>Sent</span>
-                          {b.sent_to_user_code && (
-                            <span className="text-[9px] font-mono text-emerald-300/90 bg-emerald-900/70 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                              {b.sent_to_user_code}
-                            </span>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 text-[11px]">
-                          <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-                          <span>Unsent</span>
-                        </span>
-                      )}
-                    </td>
-                    <td className={`p-3.5 font-bold max-w-[220px] truncate ${b.is_sent ? "text-emerald-200" : "text-white"}`}>{b.name}</td>
-                    <td className="p-3.5">
-                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">
-                        {b.niche}
-                      </span>
-                    </td>
-                    <td className="p-3.5 text-slate-400">
-                      {b.pincode} {b.state ? `(${b.state})` : ""}
-                    </td>
-                    <td className="p-3.5 font-mono">
-                      {b.phone && b.phone !== "N/A" ? (
-                        <a href={`tel:${b.phone}`} className="text-emerald-400 hover:underline">
-                          {b.phone}
-                        </a>
-                      ) : (
-                        <span className="text-slate-600">—</span>
-                      )}
-                      {b.phone_2 && b.phone_2 !== "N/A" && 
-                       (b.phone?.replace(/\D/g, '').slice(-10) !== b.phone_2?.replace(/\D/g, '').slice(-10)) && (
-                        <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
-                          <span className="text-slate-500 text-[9px] font-sans uppercase">Alt:</span>
-                          <a href={`tel:${b.phone_2}`} className="text-teal-400 hover:underline">
-                            {b.phone_2}
-                          </a>
-                        </div>
-                      )}
-                      {b.phone_3 && b.phone_3 !== "N/A" && 
-                       (b.phone?.replace(/\D/g, '').slice(-10) !== b.phone_3?.replace(/\D/g, '').slice(-10)) && (
-                        <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
-                          <span className="text-slate-500 text-[9px] font-sans uppercase">Alt 2:</span>
-                          <a href={`tel:${b.phone_3}`} className="text-teal-400 hover:underline">
-                            {b.phone_3}
-                          </a>
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-3.5 text-amber-400">
-                      ★ {b.rating || "N/A"} <span className="text-slate-500 font-normal">({b.reviews || 0})</span>
-                    </td>
-                    <td className="p-3.5">
-                      {b.website_link && b.website_link !== "N/A" && !b.website_link.includes("google.") && !b.website_link.includes("gstatic.") ? (
-                        <a href={b.website_link} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline flex items-center gap-1">
-                          <Globe className="w-3 h-3 shrink-0" />
-                          <span>Visit Site</span>
-                        </a>
-                      ) : (
-                        <span className="text-slate-600">—</span>
-                      )}
-                    </td>
-                    <td className="p-3.5">
-                      {b.maps_url && b.maps_url.startsWith("http") ? (
-                        <div className="flex items-center gap-1.5">
-                          <a
-                            href={b.maps_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-indigo-400 hover:text-indigo-300 hover:underline text-[11px] flex items-center gap-1"
-                          >
-                            <ExternalLink className="w-3 h-3 shrink-0" />
-                            <span>Open Maps</span>
-                          </a>
-                          <button
-                            onClick={() => handleCopyMap(b.maps_url, b.id)}
-                            title="Copy Google Maps URL"
-                            className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-200 transition"
-                          >
-                            {copiedId === b.id ? (
-                              <Check className="w-3 h-3 text-emerald-400" />
-                            ) : (
-                              <Copy className="w-3 h-3" />
-                            )}
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-slate-600">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      {/* Summary bar */}
+      <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+        <span>
+          <strong className="text-white">{filtered.length}</strong> records across{" "}
+          <strong className="text-white">{groupedList.length}</strong> pincode{groupedList.length !== 1 ? "s" : ""}
+          {" · "}
+          <span className="text-slate-500">{filtered.filter(b => !b.is_sent).length} unsent</span>
+          {" · "}
+          <span className="text-emerald-400">{filtered.filter(b => b.is_sent).length} sent</span>
+        </span>
+        <button onClick={fetchRecords} className="hover:text-white flex items-center gap-1">
+          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        </button>
       </div>
 
+      {/* Pincode-grouped Data */}
+      {loading ? (
+        <div className="p-16 text-center text-slate-400 text-xs bg-slate-900 border border-slate-800 rounded-2xl">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-400" />
+          Loading business data...
+        </div>
+      ) : groupedList.length === 0 ? (
+        <div className="p-16 text-center text-slate-500 text-xs bg-slate-900 border border-slate-800 rounded-2xl">
+          No businesses found matching your criteria.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {groupedList.map(({ pincode, state, unsent, sent }) => (
+            <div key={`${pincode}-${state}`} className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+              {/* Pincode Header */}
+              <div className="px-5 py-3 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-bold text-white font-mono">📍 {pincode}</span>
+                  <span className="text-xs text-slate-400">{state}</span>
+                </div>
+                <div className="flex items-center gap-3 text-[11px]">
+                  <span className="text-slate-400">{unsent.length} unsent</span>
+                  <span className="text-slate-600">·</span>
+                  <span className="text-emerald-400">{sent.length} sent</span>
+                  <span className="text-slate-600">·</span>
+                  <span className="text-slate-300 font-semibold">{unsent.length + sent.length} total</span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-950/60 text-slate-400 border-b border-slate-800">
+                    <tr>
+                      <th className="p-3 font-semibold">Status</th>
+                      <th className="p-3 font-semibold">Business Name</th>
+                      <th className="p-3 font-semibold">Niche</th>
+                      <th className="p-3 font-semibold">Phone</th>
+                      <th className="p-3 font-semibold">Rating</th>
+                      <th className="p-3 font-semibold">Website</th>
+                      <th className="p-3 font-semibold">Maps</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                    {/* UNSENT ROWS — top, white background */}
+                    {unsent.map((b) => (
+                      <BusinessRow key={b.id} b={b} copiedId={copiedId} onCopy={handleCopyMap} />
+                    ))}
+                    {/* Divider between unsent and sent */}
+                    {unsent.length > 0 && sent.length > 0 && (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-1.5 bg-emerald-950/30 border-y border-emerald-800/30 text-[10px] text-emerald-400/70 font-semibold tracking-wider uppercase">
+                          ↓ Sent leads — already delivered to telecallers
+                        </td>
+                      </tr>
+                    )}
+                    {/* SENT ROWS — bottom, green tinted */}
+                    {sent.map((b) => (
+                      <BusinessRow key={b.id} b={b} copiedId={copiedId} onCopy={handleCopyMap} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
     </div>
+  );
+}
+
+function BusinessRow({ b, copiedId, onCopy }) {
+  return (
+    <tr
+      className={`transition ${
+        b.is_sent
+          ? "bg-emerald-950/20 hover:bg-emerald-900/30 border-l-4 border-l-emerald-500"
+          : "hover:bg-slate-850/50 border-l-4 border-l-transparent"
+      }`}
+    >
+      <td className="p-3 whitespace-nowrap">
+        {b.is_sent ? (
+          <span
+            title={b.sent_to_user_code ? `Delivered to ${b.sent_to_user_code}` : "Delivered"}
+            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 font-bold text-[10px]"
+          >
+            <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+            <span>Sent</span>
+            {b.sent_to_user_code && (
+              <span className="text-[9px] font-mono text-emerald-300/80 bg-emerald-900/60 px-1 py-0.5 rounded">
+                {b.sent_to_user_code}
+              </span>
+            )}
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 text-[10px]">
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+            <span>Unsent</span>
+          </span>
+        )}
+      </td>
+      <td className={`p-3 font-bold max-w-[200px] truncate ${b.is_sent ? "text-emerald-200" : "text-white"}`}>{b.name}</td>
+      <td className="p-3">
+        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">{b.niche}</span>
+      </td>
+      <td className="p-3 font-mono">
+        {b.phone && b.phone !== "N/A" ? (
+          <a href={`tel:${b.phone}`} className="text-emerald-400 hover:underline">{b.phone}</a>
+        ) : (
+          <span className="text-slate-600">—</span>
+        )}
+        {b.phone_2 && b.phone_2 !== "N/A" &&
+         (b.phone?.replace(/\D/g, '').slice(-10) !== b.phone_2?.replace(/\D/g, '').slice(-10)) && (
+          <div className="text-[10px] text-teal-400 mt-0.5">
+            <a href={`tel:${b.phone_2}`} className="hover:underline">{b.phone_2}</a>
+          </div>
+        )}
+      </td>
+      <td className="p-3 text-amber-400 whitespace-nowrap">
+        ★ {b.rating || "N/A"} <span className="text-slate-500 font-normal">({b.reviews || 0})</span>
+      </td>
+      <td className="p-3">
+        {b.website_link && b.website_link !== "N/A" && !b.website_link.includes("google.") && !b.website_link.includes("gstatic.") ? (
+          <a href={b.website_link} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline flex items-center gap-1">
+            <Globe className="w-3 h-3 shrink-0" /><span>Visit</span>
+          </a>
+        ) : (
+          <span className="text-slate-600">—</span>
+        )}
+      </td>
+      <td className="p-3">
+        {b.maps_url && b.maps_url.startsWith("http") ? (
+          <div className="flex items-center gap-1.5">
+            <a
+              href={b.maps_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-indigo-400 hover:text-indigo-300 hover:underline text-[11px] flex items-center gap-1"
+            >
+              <ExternalLink className="w-3 h-3 shrink-0" /><span>Maps</span>
+            </a>
+            <button
+              onClick={() => onCopy(b.maps_url, b.id)}
+              title="Copy Google Maps URL"
+              className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-200 transition"
+            >
+              {copiedId === b.id ? (
+                <Check className="w-3 h-3 text-emerald-400" />
+              ) : (
+                <Copy className="w-3 h-3" />
+              )}
+            </button>
+          </div>
+        ) : (
+          <span className="text-slate-600">—</span>
+        )}
+      </td>
+    </tr>
   );
 }

@@ -909,8 +909,8 @@ def get_and_mark_unsent_batch(user_code: str, profile_id: int = None, limit: int
             query += " AND profile_id=?"
             params.append(profile_id)
 
-        # Send from bottom to top (highest IDs / latest scraped records first)
-        query += " ORDER BY id DESC LIMIT ?"
+        # Send oldest scraped records first (lowest IDs = scraped earliest = appear at bottom of pincode list)
+        query += " ORDER BY id ASC LIMIT ?"
         params.append(limit)
 
         cur = execute_db(conn, is_mysql, query, params)
