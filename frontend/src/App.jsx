@@ -27,7 +27,7 @@ const TABS = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem("active_tab") || "dashboard");
   const [profiles, setProfiles] = useState([]);
   const [activeProfile, setActiveProfile] = useState(null);
   const [stats, setStats] = useState(null);
@@ -103,6 +103,15 @@ export default function App() {
     }
   };
 
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    localStorage.setItem("active_tab", tab);
+  };
+
+  // Per-tab refresh state — so each tab can show a spinner when refreshing its data
+  const [tabRefreshKey, setTabRefreshKey] = useState(0);
+  const refreshCurrentTab = () => setTabRefreshKey(k => k + 1);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       
@@ -114,7 +123,7 @@ export default function App() {
         onRefresh={refreshAll}
         dbEngine={dbEngine}
         apiOnline={apiOnline}
-        onNavigateTab={(tab) => setActiveTab(tab)}
+        onNavigateTab={handleTabChange}
       />
 
       {/* Backend Connection Warning Banner if Offline */}
@@ -136,25 +145,39 @@ export default function App() {
       {/* Main Tab Navigation */}
       <nav className="border-b border-slate-800/80 bg-slate-900/60 sticky top-16 z-30 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-1 overflow-x-auto py-2.5 no-scrollbar">
-            {TABS.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                    isActive
-                      ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-bold"
-                      : "text-slate-400 hover:text-white hover:bg-slate-800/60"
-                  }`}
-                >
-                  <Icon className={`w-3.5 h-3.5 ${isActive ? "text-slate-950" : "text-slate-400"}`} />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
+          <div className="flex items-center justify-between py-2.5">
+            <div className="flex space-x-1 overflow-x-auto no-scrollbar">
+              {TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => handleTabChange(tab.id)}
+                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                      isActive
+                        ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-bold"
+                        : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+                    }`}
+                  >
+                    <Icon className={`w-3.5 h-3.5 ${isActive ? "text-slate-950" : "text-slate-400"}`} />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Per-tab refresh button */}
+            <button
+              onClick={refreshCurrentTab}
+              title="Refresh this tab's data"
+              className="ml-3 shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800/60 border border-slate-800 hover:border-slate-700 transition whitespace-nowrap"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Refresh Data
+            </button>
           </div>
         </div>
       </nav>
@@ -170,39 +193,42 @@ export default function App() {
           <>
             {activeTab === "dashboard" && (
               <DashboardTab
+                key={tabRefreshKey}
                 stats={stats}
                 activeProfile={activeProfile}
-                onNavigateTab={(tab) => setActiveTab(tab)}
+                onNavigateTab={handleTabChange}
               />
             )}
             {activeTab === "scrape" && (
               <ScraperTab
+                key={tabRefreshKey}
                 activeProfile={activeProfile}
                 onDataChanged={refreshAll}
-                onNavigateTab={(tab) => setActiveTab(tab)}
+                onNavigateTab={handleTabChange}
               />
             )}
             {activeTab === "profiles" && (
               <ProfilesTab
+                key={tabRefreshKey}
                 profiles={profiles}
                 onProfileCreated={handleProfileCreated}
                 onProfileDeleted={handleProfileDeleted}
               />
             )}
             {activeTab === "leads" && (
-              <LeadsTab activeProfile={activeProfile} />
+              <LeadsTab key={tabRefreshKey} activeProfile={activeProfile} />
             )}
             {activeTab === "users" && (
-              <UsersTab />
+              <UsersTab key={tabRefreshKey} />
             )}
             {activeTab === "data" && (
-              <DataTab activeProfile={activeProfile} />
+              <DataTab key={tabRefreshKey} activeProfile={activeProfile} onDataChanged={refreshAll} />
             )}
             {activeTab === "jobs" && (
-              <JobsTab activeProfile={activeProfile} />
+              <JobsTab key={tabRefreshKey} activeProfile={activeProfile} />
             )}
             {activeTab === "api_docs" && (
-              <ApiDocsTab activeProfile={activeProfile} />
+              <ApiDocsTab key={tabRefreshKey} activeProfile={activeProfile} />
             )}
           </>
         )}
