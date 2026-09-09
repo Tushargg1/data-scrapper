@@ -36,7 +36,8 @@ from database import (
     register_api_user, get_user_by_code, get_all_api_users,
     update_user_status, get_and_mark_unsent_batch, get_batch_delivery_stats,
     get_businesses_without_phone, clear_all_data, get_covered_summary,
-    count_businesses
+    count_businesses,
+    verify_admin_login, create_admin_token, verify_admin_token
 )
 
 from profiles_manager import create_new_profile, get_template_names, get_template
@@ -115,6 +116,53 @@ def df_to_records(df: pd.DataFrame) -> list:
             r["website"] = web
     return records
 
+
+# ── Admin Authentication ──────────────────────────────────────────────────────
+
+class AdminLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/login", tags=["Auth"])
+def admin_login(req: AdminLoginRequest):
+    user = verify_admin_login(req.email, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_admin_token(user)
+    return {
+        "success": True,
+        "token": token,
+        "user": user
+    }
+
+
+@app.get("/api/auth/verify", tags=["Auth"])
+def admin_verify(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token")
+):
+    token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    elif x_auth_token:
+        token = x_auth_token.strip()
+        
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing authentication token")
+        
+    payload = verify_admin_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Token expired or invalid")
+        
+    return {
+        "valid": True,
+        "user": {
+            "email": payload.get("email"),
+            "name": payload.get("name"),
+            "role": payload.get("role", "admin")
+        }
+    }
 
 
 # ── Health Check (For UptimeRobot / Keep-Alive Bots) ──────────────────────────

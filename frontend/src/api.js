@@ -258,3 +258,20 @@ export function getExportCsvUrl(slug, apiKey, state, pincode, niche, isSent = nu
   if (isSent !== null && isSent !== undefined) query.append("is_sent", isSent);
   return `${base}/api/profiles/${slug}/export/csv?${query.toString()}`;
 }
+
+// ── Admin Authentication ───────────────────────────────────────────────────
+export async function loginUser(email, password) {
+  return request("/api/auth/login", {
+    method: "POST",
+    body: { email, password }
+  });
+}
+
+export async function verifyAdminToken(token) {
+  return request("/api/auth/verify", {
+    headers: {
+      "Authorization": `Bearer ${token}`
+    }
+  });
+}
+

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { 
   Zap, Database, Server, Settings, CheckCircle, 
-  ExternalLink, ChevronDown, RefreshCw 
+  ExternalLink, ChevronDown, RefreshCw, LogOut, UserCheck
 } from "lucide-react";
 import { getApiBaseUrl, setApiBaseUrl } from "../config";
 
@@ -11,7 +11,9 @@ export default function Navbar({
   onSelectProfile, 
   onRefresh, 
   dbEngine,
-  apiOnline 
+  apiOnline,
+  authUser,
+  onLogout
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [apiUrl, setApiUrl] = useState(getApiBaseUrl());
@@ -123,6 +125,25 @@ export default function Navbar({
             >
               <Settings className="w-4 h-4" />
             </button>
+
+            {/* Admin User Badge & Logout */}
+            {authUser && (
+              <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-950 border border-slate-800 text-slate-300">
+                <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="truncate max-w-[170px]">{authUser.email}</span>
+              </div>
+            )}
+
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                title="Logout from Admin Dashboard"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/20 text-xs font-semibold transition"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Logout</span>
+              </button>
+            )}
           </div>
 
         </div>

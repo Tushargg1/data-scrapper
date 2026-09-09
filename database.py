@@ -9,6 +9,15 @@ import json
 import pandas as pd
 import time
 from datetime import datetime
+import hashlib
+import secrets
+import hmac
+import base64
+
+# ── Admin Auth Config ─────────────────────────────────────────────────────────
+ADMIN_LOGIN_EMAIL = os.getenv("ADMIN_LOGIN_EMAIL", "tushargoel711@gmail.com")
+ADMIN_LOGIN_PASS  = os.getenv("ADMIN_LOGIN_PASS", "Tushar@123")
+ADMIN_JWT_SECRET  = os.getenv("ADMIN_JWT_SECRET", "super-secret-auth-key-tushar-2024")
 
 # ── Database Connection Settings ──────────────────────────────────────────────
 MYSQL_HOST = os.getenv("MYSQL_HOST", "data-extractor-groomitindia.i.aivencloud.com")
@@ -166,6 +175,19 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
 
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS admin_users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                salt VARCHAR(64) NOT NULL,
+                name VARCHAR(255) DEFAULT 'Tushar Goel',
+                role VARCHAR(50) DEFAULT 'admin',
+                created_at VARCHAR(100) NOT NULL,
+                updated_at VARCHAR(100) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
 
         # Auto-seed default profile if empty
         try:
@@ -274,6 +296,19 @@ def init_db():
             )
         """)
 
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS admin_users (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                email        TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                salt         TEXT NOT NULL,
+                name         TEXT DEFAULT 'Tushar Goel',
+                role         TEXT DEFAULT 'admin',
+                created_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL
+            )
+        """)
+
 
         def _add_col(table, col, col_def):
             try:
@@ -320,6 +355,10 @@ def init_db():
         conn.commit()
 
     conn.close()
+    try:
+        init_admin_user()
+    except Exception as e:
+        print(f"[AUTH] init_admin_user deferred: {e}")
 
 
 # ── Profile CRUD ──────────────────────────────────────────────────────────────
@@ -1234,4 +1273,166 @@ def clear_all_data(profile_id: int = None) -> bool:
         return True
     finally:
         conn.close()
+
+
+# ── Admin User & Authentication Helpers ──────────────────────────────────────
+
+def hash_admin_password(password: str, salt: str) -> str:
+    """PBKDF2-HMAC-SHA256 salted hash."""
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000).hex()
+
+
+def init_admin_user():
+    """
+    Ensures exactly 1 admin user exists in DB matching configured credentials.
+    Guarantees that only 1 login details row will ever be present.
+    """
+    conn, is_mysql = get_connection()
+    try:
+        cur = conn.cursor()
+        now = datetime.now().isoformat()
+        
+        target_email = ADMIN_LOGIN_EMAIL.strip().lower()
+        target_pass = ADMIN_LOGIN_PASS.strip()
+        
+        # Query existing admin users
+        if is_mysql:
+            cur.execute("SELECT id, email, password_hash, salt FROM admin_users ORDER BY id ASC")
+            rows = cur.fetchall()
+        else:
+            cur.execute("SELECT id, email, password_hash, salt FROM admin_users ORDER BY id ASC")
+            rows = [dict(r) for r in cur.fetchall()]
+        
+        if not rows:
+            # Seed the single admin
+            salt = secrets.token_hex(16)
+            pwd_hash = hash_admin_password(target_pass, salt)
+            execute_db(
+                conn, is_mysql,
+                """
+                INSERT INTO admin_users (email, password_hash, salt, name, role, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (target_email, pwd_hash, salt, "Tushar Goel", "admin", now, now)
+            )
+            print(f"[AUTH] Seeded primary admin: {target_email}")
+        else:
+            primary = rows[0]
+            salt = primary.get("salt") or secrets.token_hex(16)
+            expected_hash = hash_admin_password(target_pass, salt)
+            
+            # Keep credentials synced to environment/config
+            execute_db(
+                conn, is_mysql,
+                """
+                UPDATE admin_users
+                SET email = ?, password_hash = ?, salt = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (target_email, expected_hash, salt, now, primary["id"])
+            )
+            
+            # Enforce single-login rule: purge any extraneous admin records
+            if len(rows) > 1:
+                for extra in rows[1:]:
+                    execute_db(conn, is_mysql, "DELETE FROM admin_users WHERE id = ?", (extra["id"],))
+                print(f"[AUTH] Enforced single-admin rule: removed {len(rows)-1} extra admin row(s)")
+                
+        if not is_mysql:
+            conn.commit()
+    except Exception as e:
+        print(f"[AUTH] Warning during init_admin_user: {e}")
+    finally:
+        conn.close()
+
+
+def verify_admin_login(email: str, password: str):
+    """
+    Verifies admin credentials against DB.
+    Returns user dict or None.
+    """
+    clean_email = (email or "").strip().lower()
+    clean_pass = (password or "").strip()
+
+    conn, is_mysql = get_connection()
+    try:
+        cur = execute_db(
+            conn, is_mysql,
+            "SELECT id, email, password_hash, salt, name, role FROM admin_users WHERE LOWER(email)=?",
+            (clean_email,)
+        )
+        row = cur.fetchone()
+        if row:
+            r = row if isinstance(row, dict) else {
+                "id": row[0], "email": row[1], "password_hash": row[2],
+                "salt": row[3], "name": row[4], "role": row[5]
+            }
+            computed_hash = hash_admin_password(clean_pass, r["salt"])
+            if hmac.compare_digest(computed_hash, r["password_hash"]):
+                return {
+                    "id": r["id"],
+                    "email": r["email"],
+                    "name": r.get("name") or "Tushar Goel",
+                    "role": r.get("role") or "admin"
+                }
+        
+        # Resilient fallback to configured credentials
+        if clean_email == ADMIN_LOGIN_EMAIL.strip().lower() and clean_pass == ADMIN_LOGIN_PASS.strip():
+            return {
+                "id": 1,
+                "email": ADMIN_LOGIN_EMAIL.strip().lower(),
+                "name": "Tushar Goel",
+                "role": "admin"
+            }
+        return None
+    except Exception as e:
+        print(f"[AUTH] DB check error in verify_admin_login: {e}")
+        if clean_email == ADMIN_LOGIN_EMAIL.strip().lower() and clean_pass == ADMIN_LOGIN_PASS.strip():
+            return {
+                "id": 1,
+                "email": ADMIN_LOGIN_EMAIL.strip().lower(),
+                "name": "Tushar Goel",
+                "role": "admin"
+            }
+        return None
+    finally:
+        conn.close()
+
+
+def create_admin_token(user_payload: dict, expires_days: int = 7) -> str:
+    """Creates a URL-safe signed HMAC-SHA256 session token."""
+    payload = {
+        "email": user_payload.get("email"),
+        "name": user_payload.get("name"),
+        "role": user_payload.get("role", "admin"),
+        "exp": int(time.time()) + (expires_days * 86400)
+    }
+    raw_json = json.dumps(payload, separators=(',', ':'))
+    b64_payload = base64.urlsafe_b64encode(raw_json.encode()).decode().rstrip('=')
+    sig = hmac.new(ADMIN_JWT_SECRET.encode(), b64_payload.encode(), hashlib.sha256).hexdigest()
+    return f"{b64_payload}.{sig}"
+
+
+def verify_admin_token(token: str):
+    """Verifies HMAC signature and expiration of session token. Returns payload dict or None."""
+    if not token or "." not in token:
+        return None
+    try:
+        b64_payload, sig = token.strip().split(".", 1)
+        expected_sig = hmac.new(ADMIN_JWT_SECRET.encode(), b64_payload.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected_sig):
+            return None
+        
+        # Restore base64 padding
+        rem = len(b64_payload) % 4
+        padded = b64_payload + ('=' * (4 - rem) if rem else '')
+        raw_json = base64.urlsafe_b64decode(padded.encode()).decode()
+        payload = json.loads(raw_json)
+        
+        if payload.get("exp", 0) < time.time():
+            return None
+        return payload
+    except Exception:
+        return None
+
 

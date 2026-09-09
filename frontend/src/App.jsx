@@ -8,12 +8,13 @@ import UsersTab from "./components/UsersTab";
 import DataTab from "./components/DataTab";
 import JobsTab from "./components/JobsTab";
 import ApiDocsTab from "./components/ApiDocsTab";
+import LoginScreen from "./components/LoginScreen";
 
 import { 
   LayoutDashboard, Play, FolderKanban, Users, 
   Database, History, BookOpen, AlertTriangle, Loader2 
 } from "lucide-react";
-import { getProfiles, getRootInfo, getGlobalStats, getProfileStats } from "./api";
+import { getProfiles, getRootInfo, getGlobalStats, getProfileStats, verifyAdminToken } from "./api";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -58,6 +59,18 @@ class TabErrorBoundary extends React.Component {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem("active_tab") || "dashboard");
+
+  // Admin authentication state
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem("admin_auth_token") || "");
+  const [authUser, setAuthUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem("admin_auth_user");
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [authChecking, setAuthChecking] = useState(true);
 
   const [profiles, setProfiles] = useState([]);
   const [activeProfile, setActiveProfile] = useState(null);
@@ -105,9 +118,51 @@ export default function App() {
     }
   };
 
+  // Check auth validity on mount
   useEffect(() => {
-    refreshAll();
+    const checkAuth = async () => {
+      const token = localStorage.getItem("admin_auth_token");
+      if (!token) {
+        setAuthChecking(false);
+        return;
+      }
+      try {
+        const res = await verifyAdminToken(token);
+        if (res && res.valid) {
+          setAuthUser(res.user);
+          localStorage.setItem("admin_auth_user", JSON.stringify(res.user));
+          refreshAll();
+        } else {
+          setAuthToken("");
+          setAuthUser(null);
+          localStorage.removeItem("admin_auth_token");
+          localStorage.removeItem("admin_auth_user");
+        }
+      } catch (err) {
+        // In case backend is offline, maintain current local token session
+        console.warn("Auth verify deferred (network/offline):", err.message);
+        refreshAll();
+      } finally {
+        setAuthChecking(false);
+      }
+    };
+    checkAuth();
   }, []);
+
+  const handleLoginSuccess = (token, user) => {
+    setAuthToken(token);
+    setAuthUser(user);
+    localStorage.setItem("admin_auth_token", token);
+    localStorage.setItem("admin_auth_user", JSON.stringify(user));
+    refreshAll();
+  };
+
+  const handleLogout = () => {
+    setAuthToken("");
+    setAuthUser(null);
+    localStorage.removeItem("admin_auth_token");
+    localStorage.removeItem("admin_auth_user");
+  };
 
   const handleSelectProfile = (p) => {
     setActiveProfile(p);
@@ -143,6 +198,21 @@ export default function App() {
   const [tabRefreshKey, setTabRefreshKey] = useState(0);
   const refreshCurrentTab = () => setTabRefreshKey(k => k + 1);
 
+  // Initial loading screen while checking auth
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 text-xs">
+        <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-emerald-400" />
+        Initializing Biz Scraper Pro...
+      </div>
+    );
+  }
+
+  // Not authenticated: render LoginScreen
+  if (!authToken) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       
@@ -155,6 +225,8 @@ export default function App() {
         dbEngine={dbEngine}
         apiOnline={apiOnline}
         onNavigateTab={handleTabChange}
+        authUser={authUser}
+        onLogout={handleLogout}
       />
 
       {/* Backend Connection Warning Banner if Offline */}
