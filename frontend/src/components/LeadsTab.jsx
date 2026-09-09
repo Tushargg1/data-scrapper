@@ -87,6 +87,19 @@ export default function LeadsTab({ activeProfile }) {
     }
   };
 
+  const filteredLeads = leads.filter((b) => {
+    // Hide "New Lead" entries by default — they go to batch delivery, not CRM
+    if (hideNewLeads && b.lead_status === "🆕 New Lead") return false;
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    const txt = [
+      b.name, b.niche, b.phone, b.phone_2, b.pincode, b.state, b.notes, b.lead_status
+    ].filter(Boolean).join(" ").toLowerCase();
+    return txt.includes(q);
+  });
+
+  const newLeadCount = leads.filter((b) => b.lead_status === "🆕 New Lead").length;
+
   const handleToggleSelect = (id) => {
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -94,7 +107,7 @@ export default function LeadsTab({ activeProfile }) {
   };
 
   const allVisibleSelected =
-    filteredLeads?.length > 0 && filteredLeads.every((b) => selectedIds.includes(b.id));
+    filteredLeads.length > 0 && filteredLeads.every((b) => selectedIds.includes(b.id));
 
   const handleToggleSelectAll = () => {
     if (allVisibleSelected) {
@@ -127,19 +140,6 @@ export default function LeadsTab({ activeProfile }) {
       setBulkUpdating(false);
     }
   };
-
-  const filteredLeads = leads.filter((b) => {
-    // Hide "New Lead" entries by default — they go to batch delivery, not CRM
-    if (hideNewLeads && b.lead_status === "🆕 New Lead") return false;
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    const txt = [
-      b.name, b.niche, b.phone, b.phone_2, b.pincode, b.state, b.notes, b.lead_status
-    ].filter(Boolean).join(" ").toLowerCase();
-    return txt.includes(q);
-  });
-
-  const newLeadCount = leads.filter(b => b.lead_status === "🆕 New Lead").length;
 
   return (
     <div className="space-y-6">
