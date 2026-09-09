@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { 
   Users, CheckCircle2, XCircle, Clock, UserPlus, 
-  ShieldCheck, AlertCircle, Loader2, Key 
+  ShieldCheck, AlertCircle, Loader2, Key, RefreshCw 
 } from "lucide-react";
+
 import { getApiUsers, updateUserStatus, registerUser } from "../api";
 
 export default function UsersTab() {

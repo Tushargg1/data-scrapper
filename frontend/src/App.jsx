@@ -26,8 +26,39 @@ const TABS = [
   { id: "api_docs", label: "API Docs", icon: BookOpen }
 ];
 
+class TabErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Tab render error:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 bg-slate-900 border border-rose-500/30 rounded-2xl text-center space-y-3">
+          <div className="text-rose-400 font-bold text-sm">Failed to load this tab.</div>
+          <div className="text-slate-400 text-xs font-mono">{this.state.error?.message}</div>
+          <button
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs font-semibold rounded-xl"
+          >
+            Retry Loading
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem("active_tab") || "dashboard");
+
   const [profiles, setProfiles] = useState([]);
   const [activeProfile, setActiveProfile] = useState(null);
   const [stats, setStats] = useState(null);
@@ -184,55 +215,58 @@ export default function App() {
 
       {/* Tab Content Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {loading && !stats ? (
-          <div className="py-24 text-center text-slate-400 text-xs">
-            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-emerald-400" />
-            Connecting to Aiven MySQL Cloud database...
-          </div>
-        ) : (
-          <>
-            {activeTab === "dashboard" && (
-              <DashboardTab
-                key={tabRefreshKey}
-                stats={stats}
-                activeProfile={activeProfile}
-                onNavigateTab={handleTabChange}
-              />
-            )}
-            {activeTab === "scrape" && (
-              <ScraperTab
-                key={tabRefreshKey}
-                activeProfile={activeProfile}
-                onDataChanged={refreshAll}
-                onNavigateTab={handleTabChange}
-              />
-            )}
-            {activeTab === "profiles" && (
-              <ProfilesTab
-                key={tabRefreshKey}
-                profiles={profiles}
-                onProfileCreated={handleProfileCreated}
-                onProfileDeleted={handleProfileDeleted}
-              />
-            )}
-            {activeTab === "leads" && (
-              <LeadsTab key={tabRefreshKey} activeProfile={activeProfile} />
-            )}
-            {activeTab === "users" && (
-              <UsersTab key={tabRefreshKey} />
-            )}
-            {activeTab === "data" && (
-              <DataTab key={tabRefreshKey} activeProfile={activeProfile} onDataChanged={refreshAll} />
-            )}
-            {activeTab === "jobs" && (
-              <JobsTab key={tabRefreshKey} activeProfile={activeProfile} />
-            )}
-            {activeTab === "api_docs" && (
-              <ApiDocsTab key={tabRefreshKey} activeProfile={activeProfile} />
-            )}
-          </>
-        )}
+        <TabErrorBoundary>
+          {loading && !stats ? (
+            <div className="py-24 text-center text-slate-400 text-xs">
+              <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-emerald-400" />
+              Connecting to Aiven MySQL Cloud database...
+            </div>
+          ) : (
+            <>
+              {activeTab === "dashboard" && (
+                <DashboardTab
+                  key={tabRefreshKey}
+                  stats={stats}
+                  activeProfile={activeProfile}
+                  onNavigateTab={handleTabChange}
+                />
+              )}
+              {activeTab === "scrape" && (
+                <ScraperTab
+                  key={tabRefreshKey}
+                  activeProfile={activeProfile}
+                  onDataChanged={refreshAll}
+                  onNavigateTab={handleTabChange}
+                />
+              )}
+              {activeTab === "profiles" && (
+                <ProfilesTab
+                  key={tabRefreshKey}
+                  profiles={profiles}
+                  onProfileCreated={handleProfileCreated}
+                  onProfileDeleted={handleProfileDeleted}
+                />
+              )}
+              {activeTab === "leads" && (
+                <LeadsTab key={tabRefreshKey} activeProfile={activeProfile} />
+              )}
+              {activeTab === "users" && (
+                <UsersTab key={tabRefreshKey} />
+              )}
+              {activeTab === "data" && (
+                <DataTab key={tabRefreshKey} activeProfile={activeProfile} onDataChanged={refreshAll} />
+              )}
+              {activeTab === "jobs" && (
+                <JobsTab key={tabRefreshKey} activeProfile={activeProfile} />
+              )}
+              {activeTab === "api_docs" && (
+                <ApiDocsTab key={tabRefreshKey} activeProfile={activeProfile} />
+              )}
+            </>
+          )}
+        </TabErrorBoundary>
       </main>
+
 
       {/* Global Footer */}
       <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-500">
