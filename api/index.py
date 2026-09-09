@@ -679,6 +679,48 @@ def admin_delivery_stats():
 # PLAYWRIGHT SCRAPING ENGINE ENDPOINTS
 # ════════════════════════════════════════════════════════════════════════════
 
+SCRAPER_PLATFORMS = [
+    {
+        "id": "google_maps",
+        "name": "Google Maps",
+        "icon": "🗺️",
+        "status": "ready",
+        "badge": "Active Engine",
+        "description": "Extract business names, direct phones, verified websites, ratings & geo addresses."
+    },
+    {
+        "id": "indiamart",
+        "name": "IndiaMART",
+        "icon": "🏭",
+        "status": "coming_soon",
+        "badge": "Coming Soon",
+        "description": "B2B wholesale suppliers, manufacturers, GST numbers & verified seller inquiries."
+    },
+    {
+        "id": "instagram",
+        "name": "Instagram Business",
+        "icon": "📸",
+        "status": "coming_soon",
+        "badge": "Coming Soon",
+        "description": "Creator & business bios, public WhatsApp/call buttons, follower count & location tags."
+    },
+    {
+        "id": "justdial",
+        "name": "JustDial",
+        "icon": "📞",
+        "status": "coming_soon",
+        "badge": "Coming Soon",
+        "description": "Local service listings, verified mobile numbers, ratings & operating hours."
+    }
+]
+
+
+@app.get("/api/scrape/sources", tags=["Scraping Engine"])
+def api_scrape_sources():
+    """Return available and upcoming scraping platforms/sources."""
+    return {"sources": SCRAPER_PLATFORMS}
+
+
 class ScrapeStartRequest(BaseModel):
     profile_id: int = 1
     state: str
@@ -686,12 +728,13 @@ class ScrapeStartRequest(BaseModel):
     niches: list[str]
     max_scrolls: int = 3
     rescan_covered: bool = False
+    source: Optional[str] = "google_maps"
 
 
 @app.post("/api/scrape/start", tags=["Scraping Engine"])
 def api_start_scrape(body: ScrapeStartRequest):
     """
-    Launch Google Maps Playwright scraper in the background.
+    Launch Playwright scraper in the background.
     Businesses are parsed with high-speed element clicking and
     saved instantly into Aiven MySQL database without data loss.
     """
@@ -702,7 +745,8 @@ def api_start_scrape(body: ScrapeStartRequest):
         pincodes=[p.strip() for p in body.pincodes if p.strip()],
         niches=[n.strip() for n in body.niches if n.strip()],
         max_scrolls=body.max_scrolls,
-        rescan_covered=body.rescan_covered
+        rescan_covered=body.rescan_covered,
+        source=body.source or "google_maps"
     )
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("message"))

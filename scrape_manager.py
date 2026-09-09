@@ -18,6 +18,8 @@ stop_scrape_event = threading.Event()
 
 current_scrape_job = {
     "status": "idle",  # idle | running | completed | stopped | error
+    "source": "google_maps",
+    "source_name": "Google Maps",
     "profile_id": 1,
     "profile_name": "",
     "state": "",
@@ -66,7 +68,7 @@ def _launch_browser_and_context(playwright_inst):
     return browser, context
 
 
-def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_scrolls: int, rescan_covered: bool = False):
+def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_scrolls: int, rescan_covered: bool = False, source: str = "google_maps"):
     global current_scrape_job
     stop_scrape_event.clear()
     total_jobs = len(pincodes) * len(niches)
@@ -88,9 +90,13 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
     except Exception:
         pass
 
+    source_title = "Google Maps" if source == "google_maps" else source.replace("_", " ").title()
+
     with scrape_lock:
         current_scrape_job.update({
             "status": "running",
+            "source": source,
+            "source_name": source_title,
             "profile_id": profile_id,
             "profile_name": p_name,
             "state": state,
@@ -230,7 +236,7 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
 
 
 
-def start_scraping(profile_id: int, state: str, pincodes: list, niches: list, max_scrolls: int = 3, rescan_covered: bool = False) -> dict:
+def start_scraping(profile_id: int, state: str, pincodes: list, niches: list, max_scrolls: int = 3, rescan_covered: bool = False, source: str = "google_maps") -> dict:
     global active_thread
 
     with scrape_lock:
@@ -244,12 +250,13 @@ def start_scraping(profile_id: int, state: str, pincodes: list, niches: list, ma
 
     active_thread = threading.Thread(
         target=_run_worker,
-        args=(profile_id, state, pincodes, niches, max_scrolls, rescan_covered),
+        args=(profile_id, state, pincodes, niches, max_scrolls, rescan_covered, source),
         daemon=True
     )
     active_thread.start()
     mode_text = "re-scraping all including covered" if rescan_covered else "skipping covered & continuing"
-    return {"success": True, "message": f"Scrape job started for {len(pincodes)} pincodes and {len(niches)} niches ({mode_text})."}
+    source_label = "Google Maps" if source == "google_maps" else source.replace("_", " ").title()
+    return {"success": True, "message": f"[{source_label}] Scrape job started for {len(pincodes)} pincodes and {len(niches)} niches ({mode_text})."}
 
 
 def stop_scraping() -> dict:

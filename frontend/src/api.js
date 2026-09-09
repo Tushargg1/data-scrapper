@@ -144,6 +144,10 @@ export async function bulkUpdateLeadStatus(slug, businessIds, status, notes = nu
 }
 
 // ── Scraping Engine ─────────────────────────────────────────────────────────
+export async function getScraperSources() {
+  return request("/api/scrape/sources");
+}
+
 export async function startScraping(data) {
   return request("/api/scrape/start", {
     method: "POST",

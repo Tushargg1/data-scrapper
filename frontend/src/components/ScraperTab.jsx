@@ -10,7 +10,47 @@ import {
   getProfileCoverage, getScrapeSession, resumeScrape 
 } from "../api";
 
+const SCRAPER_PLATFORMS = [
+  {
+    id: "google_maps",
+    name: "Google Maps",
+    icon: "🗺️",
+    badge: "Active",
+    badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
+    description: "Extract local business listings, verified phone numbers, websites, star ratings & addresses.",
+    status: "ready"
+  },
+  {
+    id: "indiamart",
+    name: "IndiaMART",
+    icon: "🏭",
+    badge: "Coming Soon",
+    badgeColor: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+    description: "B2B wholesale suppliers, direct manufacturers, GST numbers & verified seller inquiries.",
+    status: "coming_soon"
+  },
+  {
+    id: "instagram",
+    name: "Instagram Business",
+    icon: "📸",
+    badge: "Coming Soon",
+    badgeColor: "bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40",
+    description: "Creator & business bios, public WhatsApp/call buttons, follower counts & location tags.",
+    status: "coming_soon"
+  },
+  {
+    id: "justdial",
+    name: "JustDial",
+    icon: "📞",
+    badge: "Coming Soon",
+    badgeColor: "bg-blue-500/20 text-blue-300 border-blue-500/40",
+    description: "Local directory listings, verified mobile contacts, ratings & operational hours.",
+    status: "coming_soon"
+  }
+];
+
 export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab }) {
+  const [selectedPlatform, setSelectedPlatform] = useState("google_maps");
   const [states, setStates] = useState([]);
   const [selectedState, setSelectedState] = useState("");
   const [pincodes, setPincodes] = useState([]);
@@ -267,7 +307,8 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
         pincodes: selectedPincodes,
         niches: allNiches,
         max_scrolls: Number(maxScrolls),
-        rescan_covered: scrapeMode === "rescrape"
+        rescan_covered: scrapeMode === "rescrape",
+        source: selectedPlatform
       });
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = setInterval(fetchStatus, 1200);
@@ -527,6 +568,96 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
           )}
         </div>
       )}
+
+      {/* Scraping Source / Platform Selection */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-sm font-bold">
+              🌐
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                Scraping Source & Platform Selection
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                  Multi-Source Ready
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Choose the target platform. Google Maps is actively running; B2B and social platforms are prepared for seamless plug-in.
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-3 py-1 rounded-xl self-start sm:self-auto flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            Active: {SCRAPER_PLATFORMS.find((p) => p.id === selectedPlatform)?.name || "Google Maps"}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {SCRAPER_PLATFORMS.map((platform) => {
+            const isSelected = selectedPlatform === platform.id;
+            return (
+              <button
+                key={platform.id}
+                type="button"
+                onClick={() => setSelectedPlatform(platform.id)}
+                className={`text-left p-3.5 rounded-xl border transition flex flex-col justify-between group ${
+                  isSelected
+                    ? "bg-slate-800/90 border-emerald-500 shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500/40"
+                    : "bg-slate-950/70 border-slate-800 hover:border-slate-700 hover:bg-slate-900/60"
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-2xl group-hover:scale-110 transition-transform">{platform.icon}</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${platform.badgeColor}`}>
+                      {platform.badge}
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                    {platform.name}
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                    {platform.description}
+                  </p>
+                </div>
+
+                <div className="pt-3 mt-2.5 border-t border-slate-800/70 flex items-center justify-between text-[10px]">
+                  <span className={isSelected ? "text-emerald-400 font-bold" : "text-slate-500"}>
+                    {isSelected ? "● Selected" : "Click to select"}
+                  </span>
+                  {platform.status === "ready" ? (
+                    <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                      <Check className="w-3 h-3" /> Live Runner
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 italic">Adapter Ready</span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {selectedPlatform !== "google_maps" && (
+          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-base">ℹ️</span>
+              <span>
+                <strong>{SCRAPER_PLATFORMS.find((p) => p.id === selectedPlatform)?.name}</strong> platform option selected. The engine runner currently extracts from Google Maps; this option is structured for the upcoming platform adapter without requiring interface changes.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedPlatform("google_maps")}
+              className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold rounded-lg text-[11px] transition shrink-0 self-start sm:self-auto"
+            >
+              Switch to Google Maps
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Scraper Configuration Form */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
