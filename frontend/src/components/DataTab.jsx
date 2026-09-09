@@ -17,6 +17,7 @@ export default function DataTab({ activeProfile, onDataChanged }) {
   const [states, setStates] = useState([]);
   const [selectedState, setSelectedState] = useState("");
   const [selectedNiche, setSelectedNiche] = useState("");
+  const [deliveryFilter, setDeliveryFilter] = useState("all"); // "all" | "sent" | "unsent"
 
   // Enrichment state
   const [enrichStatus, setEnrichStatus] = useState(null); // null | status object
@@ -48,49 +49,29 @@ export default function DataTab({ activeProfile, onDataChanged }) {
     fetchRecords();
   }, [activeProfile, selectedState, selectedNiche]);
 
-  // Poll enrichment status while running
-  const startEnrichPoll = () => {
-    if (enrichPollRef.current) return;
-    enrichPollRef.current = setInterval(async () => {
-      if (!activeProfile) return;
-      try {
-        const s = await getEnrichmentStatus(activeProfile.slug, activeProfile.api_key);
-        setEnrichStatus(s);
-        if (s.status !== "running") {
-          clearInterval(enrichPollRef.current);
-          enrichPollRef.current = null;
-          fetchRecords(); // refresh table with newly found numbers
-        } else {
-          // Refresh table every ~24s during enrichment (every 3 polls)
-          if (s.done % 3 === 0) fetchRecords();
-        }
-      } catch (_) {}
-    }, 8000);
-  };
-
+  // Poll enrichment status if running
   useEffect(() => {
-    return () => {
-      if (enrichPollRef.current) clearInterval(enrichPollRef.current);
-    };
-  }, []);
+    if (!activeProfile) return;
+    enrichPollRef.current = setInterval(async () => {
+      try {
+        const st = await getEnrichmentStatus(activeProfile.slug, activeProfile.api_key);
+        setEnrichStatus(st);
+        if (st && st.status === "completed") {
+          fetchRecords(); // refresh records to show newly found phones
+        }
+      } catch (err) {
+        // ignore poll errors
+      }
+    }, 2000);
+    return () => clearInterval(enrichPollRef.current);
+  }, [activeProfile]);
 
   const handleStartEnrich = async () => {
     if (!activeProfile) return;
-    setEnrichMsg("Starting enrichment...");
+    setEnrichMsg("");
     try {
       const res = await startPhoneEnrichment(activeProfile.slug, activeProfile.api_key);
-      if (res.success) {
-        setEnrichMsg(`✅ ${res.message}`);
-        setEnrichStatus({ status: "running", total: res.total, done: 0, found: 0, progress_percent: 0 });
-        startEnrichPoll();
-      } else {
-        setEnrichMsg(`⚠️ ${res.message}`);
-        // If already running, start polling
-        if (res.message?.includes("already running")) {
-          setEnrichStatus(res.status || null);
-          startEnrichPoll();
-        }
-      }
+      setEnrichMsg(res.message || "Enrichment started.");
     } catch (err) {
       setEnrichMsg(`❌ Error: ${err.message}`);
     }
@@ -132,10 +113,13 @@ export default function DataTab({ activeProfile, onDataChanged }) {
   };
 
   const filtered = businesses.filter((b) => {
+    if (deliveryFilter === "sent" && !b.is_sent) return false;
+    if (deliveryFilter === "unsent" && b.is_sent) return false;
     if (!search) return true;
     const q = search.toLowerCase();
     const str = [
-      b.name, b.niche, b.phone, b.phone_2, b.pincode, b.state, b.rating
+      b.name, b.niche, b.phone, b.phone_2, b.pincode, b.state, b.rating, b.sent_to_user_code,
+      b.is_sent ? "sent" : "unsent"
     ].filter(Boolean).join(" ").toLowerCase();
     return str.includes(q);
   });
@@ -276,7 +260,7 @@ export default function DataTab({ activeProfile, onDataChanged }) {
       )}
 
       {/* Filter Row */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
         {/* Search */}
         <div className="relative">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -316,6 +300,19 @@ export default function DataTab({ activeProfile, onDataChanged }) {
             ))}
           </select>
         </div>
+
+        {/* Delivery Filter */}
+        <div>
+          <select
+            value={deliveryFilter}
+            onChange={(e) => setDeliveryFilter(e.target.value)}
+            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 font-medium"
+          >
+            <option value="all">All Delivery Statuses</option>
+            <option value="sent">🟢 Sent Only</option>
+            <option value="unsent">⚪ Unsent Only</option>
+          </select>
+        </div>
       </div>
 
       {/* Data Table */}
@@ -341,6 +338,7 @@ export default function DataTab({ activeProfile, onDataChanged }) {
             <table className="w-full text-left border-collapse text-xs">
               <thead className="bg-slate-950 text-slate-400 sticky top-0 z-10 border-b border-slate-800">
                 <tr>
+                  <th className="p-3.5 font-semibold">Delivery Status</th>
                   <th className="p-3.5 font-semibold">Business Name</th>
                   <th className="p-3.5 font-semibold">Niche</th>
                   <th className="p-3.5 font-semibold">Location</th>
@@ -352,8 +350,36 @@ export default function DataTab({ activeProfile, onDataChanged }) {
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
                 {filtered.map((b) => (
-                  <tr key={b.id} className="hover:bg-slate-850/50 transition">
-                    <td className="p-3.5 font-bold text-white max-w-[220px] truncate">{b.name}</td>
+                  <tr
+                    key={b.id}
+                    className={`transition ${
+                      b.is_sent
+                        ? "bg-emerald-950/30 hover:bg-emerald-900/40 border-l-4 border-l-emerald-500 shadow-sm shadow-emerald-500/5"
+                        : "hover:bg-slate-850/50 border-l-4 border-l-transparent"
+                    }`}
+                  >
+                    <td className="p-3.5 whitespace-nowrap">
+                      {b.is_sent ? (
+                        <span
+                          title={b.sent_to_user_code ? `Delivered to ${b.sent_to_user_code} on ${b.sent_at || ''}` : "Delivered to telecaller"}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 font-bold text-[11px] shadow-sm shadow-emerald-500/10"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>Sent</span>
+                          {b.sent_to_user_code && (
+                            <span className="text-[9px] font-mono text-emerald-300/90 bg-emerald-900/70 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                              {b.sent_to_user_code}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 text-[11px]">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+                          <span>Unsent</span>
+                        </span>
+                      )}
+                    </td>
+                    <td className={`p-3.5 font-bold max-w-[220px] truncate ${b.is_sent ? "text-emerald-200" : "text-white"}`}>{b.name}</td>
                     <td className="p-3.5">
                       <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">
                         {b.niche}

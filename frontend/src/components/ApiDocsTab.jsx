@@ -83,22 +83,34 @@ export default function ApiDocsTab({ activeProfile }) {
           Enter an approved user code to request up to 10 un-sent businesses. Each lead is marked as sent atomically to avoid duplicate delivery across telecallers.
         </p>
 
-        <form onSubmit={handleTestBatch} className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="text"
-            value={testUserCode}
-            onChange={(e) => setTestUserCode(e.target.value.toUpperCase())}
-            placeholder="ENTER_USER_CODE (e.g. from Users tab)"
-            className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 font-mono uppercase focus:outline-none focus:border-emerald-500"
-          />
-          <button
-            type="submit"
-            disabled={loadingBatch}
-            className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 text-xs font-bold px-6 py-2.5 rounded-xl transition flex items-center justify-center gap-2"
-          >
-            {loadingBatch ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            Request 10 Leads
-          </button>
+        <form onSubmit={handleTestBatch} className="space-y-2">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              type="text"
+              value={testUserCode}
+              onChange={(e) => setTestUserCode(e.target.value.toUpperCase())}
+              placeholder="ENTER_USER_CODE (e.g. TC-DEMO-01)"
+              className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 font-mono uppercase focus:outline-none focus:border-emerald-500"
+            />
+            <button
+              type="submit"
+              disabled={loadingBatch}
+              className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 text-xs font-bold px-6 py-2.5 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
+            >
+              {loadingBatch ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Request 10 Leads
+            </button>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-slate-400">
+            <span>Quick fill approved user code:</span>
+            <button
+              type="button"
+              onClick={() => setTestUserCode("TC-DEMO-01")}
+              className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 font-mono text-[10px] border border-slate-700 transition"
+            >
+              TC-DEMO-01
+            </button>
+          </div>
         </form>
 
         {batchError && (
@@ -110,16 +122,22 @@ export default function ApiDocsTab({ activeProfile }) {
 
         {batchResult && (
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
-            <div className="flex items-center justify-between text-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
               <span className="font-semibold text-emerald-400">{batchResult.message}</span>
-              <span className="font-mono text-slate-400">Delivered: {batchResult.batch_size} businesses</span>
+              <span className="font-mono text-slate-400">Delivered: {batchResult.batch_size} businesses (from bottom to top)</span>
+            </div>
+
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs">
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>All delivered records are now permanently marked as <strong>SENT (green)</strong> in your MySQL database.</span>
             </div>
 
             {batchResult.businesses && batchResult.businesses.length > 0 ? (
-              <div className="overflow-x-auto max-h-56 border border-slate-800/80 rounded-lg">
+              <div className="overflow-x-auto max-h-64 border border-slate-800/80 rounded-lg">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-900 text-slate-400">
                     <tr>
+                      <th className="p-2">Status</th>
                       <th className="p-2">Name</th>
                       <th className="p-2">Phone</th>
                       <th className="p-2">Niche</th>
@@ -128,8 +146,14 @@ export default function ApiDocsTab({ activeProfile }) {
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 text-slate-300">
                     {batchResult.businesses.map((b, i) => (
-                      <tr key={i} className="hover:bg-slate-900/50">
-                        <td className="p-2 font-medium text-white">{b.name}</td>
+                      <tr key={i} className="hover:bg-emerald-950/40 bg-emerald-950/20 border-l-2 border-l-emerald-400 transition">
+                        <td className="p-2 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 font-bold text-[10px]">
+                            <Check className="w-3 h-3 text-emerald-400" />
+                            Sent
+                          </span>
+                        </td>
+                        <td className="p-2 font-medium text-emerald-200">{b.name}</td>
                         <td className="p-2 font-mono text-emerald-400">{b.phone || "—"}</td>
                         <td className="p-2">{b.niche}</td>
                         <td className="p-2 text-slate-400">{b.pincode}</td>

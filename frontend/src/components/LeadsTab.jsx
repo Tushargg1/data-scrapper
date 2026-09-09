@@ -7,6 +7,7 @@ import { getBusinesses, updateLeadStatus } from "../api";
 
 const LEAD_STATUS_OPTIONS = [
   "🆕 New Lead",
+  "📤 Sent",
   "📞 Contacted",
   "💬 In Discussion",
   "🤝 Closed / Won",
@@ -199,11 +200,28 @@ export default function LeadsTab({ activeProfile }) {
                   const currentStatus = b.lead_status || "🆕 New Lead";
 
                   return (
-                    <tr key={b.id} className="hover:bg-slate-850/50 transition">
+                    <tr
+                      key={b.id}
+                      className={`transition ${
+                        b.is_sent || b.lead_status === "📤 Sent"
+                          ? "bg-emerald-950/30 hover:bg-emerald-900/40 border-l-4 border-l-emerald-500 shadow-sm shadow-emerald-500/5"
+                          : "hover:bg-slate-850/50 border-l-4 border-l-transparent"
+                      }`}
+                    >
                       
                       {/* Name & Niche */}
                       <td className="p-3.5 space-y-1">
-                        <div className="font-bold text-white text-sm">{b.name}</div>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-bold text-sm ${b.is_sent || b.lead_status === "📤 Sent" ? "text-emerald-200" : "text-white"}`}>
+                            {b.name}
+                          </span>
+                          {(b.is_sent || b.lead_status === "📤 Sent") && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 font-bold text-[10px]">
+                              <CheckCircle className="w-3 h-3 text-emerald-400" />
+                              <span>Sent {b.sent_to_user_code ? `(${b.sent_to_user_code})` : ''}</span>
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1.5">
                           <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">
                             {b.niche}

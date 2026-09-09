@@ -569,16 +569,29 @@ def update_lead_status(business_id: int, status: str, notes: str = None):
     conn, is_mysql = get_connection()
     try:
         now = datetime.now().isoformat()
+        is_sent_val = 1 if "sent" in status.lower() else (0 if status == "🆕 New Lead" else None)
         if notes is not None:
-            execute_db(conn, is_mysql,
-                "UPDATE businesses SET lead_status=?, notes=?, updated_at=? WHERE id=?",
-                (status, notes, now, business_id)
-            )
+            if is_sent_val is not None:
+                execute_db(conn, is_mysql,
+                    "UPDATE businesses SET lead_status=?, notes=?, is_sent=?, updated_at=? WHERE id=?",
+                    (status, notes, is_sent_val, now, business_id)
+                )
+            else:
+                execute_db(conn, is_mysql,
+                    "UPDATE businesses SET lead_status=?, notes=?, updated_at=? WHERE id=?",
+                    (status, notes, now, business_id)
+                )
         else:
-            execute_db(conn, is_mysql,
-                "UPDATE businesses SET lead_status=?, updated_at=? WHERE id=?",
-                (status, now, business_id)
-            )
+            if is_sent_val is not None:
+                execute_db(conn, is_mysql,
+                    "UPDATE businesses SET lead_status=?, is_sent=?, updated_at=? WHERE id=?",
+                    (status, is_sent_val, now, business_id)
+                )
+            else:
+                execute_db(conn, is_mysql,
+                    "UPDATE businesses SET lead_status=?, updated_at=? WHERE id=?",
+                    (status, now, business_id)
+                )
         if not is_mysql: conn.commit()
     finally:
         conn.close()
@@ -868,7 +881,8 @@ def get_and_mark_unsent_batch(user_code: str, profile_id: int = None, limit: int
             query += " AND profile_id=?"
             params.append(profile_id)
 
-        query += " ORDER BY id ASC LIMIT ?"
+        # Send from bottom to top (highest IDs / latest scraped records first)
+        query += " ORDER BY id DESC LIMIT ?"
         params.append(limit)
 
         cur = execute_db(conn, is_mysql, query, params)
@@ -881,11 +895,20 @@ def get_and_mark_unsent_batch(user_code: str, profile_id: int = None, limit: int
         placeholders = ",".join(["?"] * len(biz_ids))
 
         # Update businesses table
-        execute_db(conn, is_mysql, f"""
-            UPDATE businesses
-            SET is_sent=1, sent_to_user_code=?, sent_at=?
-            WHERE id IN ({placeholders})
-        """, [user_code, now] + biz_ids)
+        if is_mysql:
+            execute_db(conn, is_mysql, f"""
+                UPDATE businesses
+                SET is_sent=1, sent_to_user_code=?, sent_at=?,
+                    lead_status=IF(lead_status='🆕 New Lead', '📤 Sent', lead_status)
+                WHERE id IN ({placeholders})
+            """, [user_code, now] + biz_ids)
+        else:
+            execute_db(conn, is_mysql, f"""
+                UPDATE businesses
+                SET is_sent=1, sent_to_user_code=?, sent_at=?,
+                    lead_status=CASE WHEN lead_status='🆕 New Lead' THEN '📤 Sent' ELSE lead_status END
+                WHERE id IN ({placeholders})
+            """, [user_code, now] + biz_ids)
 
         # Record in sent_history
         for bid in biz_ids:
@@ -895,6 +918,15 @@ def get_and_mark_unsent_batch(user_code: str, profile_id: int = None, limit: int
             """, (user_code, bid, now))
 
         if not is_mysql: conn.commit()
+
+        # Update returned objects with sent details
+        for r in rows:
+            r["is_sent"] = 1
+            r["sent_to_user_code"] = user_code
+            r["sent_at"] = now
+            if r.get("lead_status") == "🆕 New Lead":
+                r["lead_status"] = "📤 Sent"
+
         return rows
     finally:
         conn.close()

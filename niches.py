@@ -92,6 +92,7 @@ DEFAULT_NICHES = [
 
 LEAD_STATUSES = [
     "🆕 New Lead",
+    "📤 Sent",
     "📞 Contacted",
     "📅 Demo Scheduled",
     "🤝 Negotiating",
