@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { 
   Search, Filter, Phone, Globe, Star, MapPin, 
-  CheckCircle, MessageSquare, ExternalLink, Loader2, Edit3 
+  CheckCircle, MessageSquare, ExternalLink, Loader2, Edit3, CheckSquare, Square
 } from "lucide-react";
-import { getBusinesses, updateLeadStatus } from "../api";
+import { getBusinesses, updateLeadStatus, bulkUpdateLeadStatus } from "../api";
 
 const LEAD_STATUS_OPTIONS = [
   "🆕 New Lead",
@@ -19,6 +19,10 @@ export default function LeadsTab({ activeProfile }) {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Bulk Selection
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
 
   // Filters
   const [hasPhone, setHasPhone] = useState(null);
@@ -80,6 +84,47 @@ export default function LeadsTab({ activeProfile }) {
       alert("Failed to save notes: " + err.message);
     } finally {
       setSavingNotes(false);
+    }
+  };
+
+  const handleToggleSelect = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const allVisibleSelected =
+    filteredLeads?.length > 0 && filteredLeads.every((b) => selectedIds.includes(b.id));
+
+  const handleToggleSelectAll = () => {
+    if (allVisibleSelected) {
+      const visibleSet = new Set(filteredLeads.map((b) => b.id));
+      setSelectedIds((prev) => prev.filter((id) => !visibleSet.has(id)));
+    } else {
+      const visibleIds = filteredLeads.map((b) => b.id);
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
+  const handleBulkStatus = async (newStatus) => {
+    if (!selectedIds.length || !activeProfile) return;
+    setBulkUpdating(true);
+    try {
+      await bulkUpdateLeadStatus(
+        activeProfile.slug,
+        selectedIds,
+        newStatus,
+        null,
+        activeProfile.api_key
+      );
+      setLeads((prev) =>
+        prev.map((b) => (selectedIds.includes(b.id) ? { ...b, lead_status: newStatus } : b))
+      );
+      setSelectedIds([]);
+    } catch (err) {
+      alert("Bulk update failed: " + err.message);
+    } finally {
+      setBulkUpdating(false);
     }
   };
 
@@ -211,6 +256,15 @@ export default function LeadsTab({ activeProfile }) {
             <table className="w-full text-left border-collapse text-xs">
               <thead className="bg-slate-950 text-slate-400 sticky top-0 z-10 border-b border-slate-800">
                 <tr>
+                  <th className="p-3.5 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={handleToggleSelectAll}
+                      className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 cursor-pointer w-4 h-4 accent-emerald-500"
+                      title={allVisibleSelected ? "Deselect all visible leads" : "Select all visible leads"}
+                    />
+                  </th>
                   <th className="p-3.5 font-semibold">Business Info</th>
                   <th className="p-3.5 font-semibold">Lead Status</th>
                   <th className="p-3.5 font-semibold">Phone Contacts</th>
@@ -222,16 +276,28 @@ export default function LeadsTab({ activeProfile }) {
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
                 {filteredLeads.map((b) => {
                   const currentStatus = b.lead_status || "🆕 New Lead";
+                  const isSelected = selectedIds.includes(b.id);
 
                   return (
                     <tr
                       key={b.id}
                       className={`transition ${
-                        b.is_sent || b.lead_status === "📤 Sent"
+                        isSelected
+                          ? "bg-emerald-950/50 border-l-4 border-l-emerald-400"
+                          : b.is_sent || b.lead_status === "📤 Sent"
                           ? "bg-emerald-950/30 hover:bg-emerald-900/40 border-l-4 border-l-emerald-500 shadow-sm shadow-emerald-500/5"
                           : "hover:bg-slate-850/50 border-l-4 border-l-transparent"
                       }`}
                     >
+                      {/* Checkbox Column */}
+                      <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleSelect(b.id)}
+                          className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 cursor-pointer w-4 h-4 accent-emerald-500"
+                        />
+                      </td>
                       
                       {/* Name & Niche */}
                       <td className="p-3.5 space-y-1">
@@ -402,6 +468,62 @@ export default function LeadsTab({ activeProfile }) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Floating Bulk Actions Bar */}
+      {selectedIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-md border border-emerald-500/40 rounded-2xl p-3 px-5 shadow-2xl shadow-emerald-950/60 flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 pr-3 border-r border-slate-700">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-bold text-white font-mono">
+              {selectedIds.length} lead{selectedIds.length > 1 ? "s" : ""} selected
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleBulkStatus("📞 Contacted")}
+              disabled={bulkUpdating}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 disabled:opacity-50 shadow-sm"
+            >
+              {bulkUpdating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>📞</span>}
+              Mark Contacted
+            </button>
+
+            <button
+              onClick={() => handleBulkStatus("❌ Not Interested")}
+              disabled={bulkUpdating}
+              className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 disabled:opacity-50 shadow-sm"
+            >
+              {bulkUpdating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>❌</span>}
+              Mark Not Interested
+            </button>
+
+            <select
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleBulkStatus(e.target.value);
+                  e.target.value = "";
+                }
+              }}
+              disabled={bulkUpdating}
+              defaultValue=""
+              className="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-emerald-500 cursor-pointer font-medium disabled:opacity-50"
+            >
+              <option value="" disabled>Change Status to...</option>
+              {LEAD_STATUS_OPTIONS.map((st) => (
+                <option key={st} value={st}>{st}</option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={() => setSelectedIds([])}
+            className="text-xs text-slate-400 hover:text-white pl-2 transition font-medium underline underline-offset-2"
+          >
+            Deselect All
+          </button>
         </div>
       )}
 

@@ -10,7 +10,7 @@ from database import (
     get_profile_by_slug, get_all_profiles,
     save_scrape_session, complete_scrape_session, get_scrape_session
 )
-from scraper import scrape_google_maps
+from scraper import scrape_google_maps, get_random_user_agent
 
 
 scrape_lock = threading.Lock()
@@ -39,7 +39,7 @@ active_thread = None
 
 
 def _launch_browser_and_context(playwright_inst):
-    """Launch clean Chromium instance with consent cookies pre-set."""
+    """Launch clean Chromium instance with consent cookies pre-set and rotated user agent."""
     browser = playwright_inst.chromium.launch(
         headless=True,
         args=[
@@ -54,11 +54,7 @@ def _launch_browser_and_context(playwright_inst):
     )
     context = browser.new_context(
         viewport={'width': 800, 'height': 600},
-        user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        )
+        user_agent=get_random_user_agent()
     )
     try:
         context.add_cookies([
@@ -183,14 +179,19 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
                                 query_success = True
                                 break
                             except Exception as ex:
-                                print(f"[SCRAPER] Error on {niche} in {pc} (attempt {attempt+1}/{max_query_attempts}): {ex}")
-                                # Re-heal browser context if damaged
+                                is_rate_limit = any(term in str(ex).lower() for term in ["sorry", "unusual traffic", "rate limit", "429", "captcha"])
+                                pause_time = 45 if is_rate_limit else 2
+                                if is_rate_limit:
+                                    print(f"[SCRAPER] ⚠️ Rate limit / CAPTCHA detected on {niche} in {pc}. Rotating User-Agent & cooling down for {pause_time}s...")
+                                else:
+                                    print(f"[SCRAPER] Error on {niche} in {pc} (attempt {attempt+1}/{max_query_attempts}): {ex}")
+                                # Re-heal browser context with fresh rotated User-Agent
                                 try:
                                     context.close()
                                     browser.close()
                                 except Exception:
                                     pass
-                                time.sleep(1)
+                                time.sleep(pause_time)
                                 try:
                                     browser, context = _launch_browser_and_context(p)
                                 except Exception as err:

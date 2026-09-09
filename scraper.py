@@ -7,10 +7,23 @@ import sys
 import asyncio
 import re
 import os
+import random
 import subprocess
 import json
 import pandas as pd
 from playwright.sync_api import sync_playwright
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0",
+]
+
+def get_random_user_agent() -> str:
+    return random.choice(USER_AGENTS)
 
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -185,7 +198,10 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
 
         # ── 1. Intercept internal Google Maps data payloads ──────────────
         def _on_response(resp):
-            if "search?tbm=map" in resp.url and resp.status == 200:
+            if resp.status == 429:
+                print(f"[SCRAPER] ⚠️ Google Maps returned HTTP 429 (Too Many Requests). Pausing for 45s...")
+                time.sleep(45)
+            elif "search?tbm=map" in resp.url and resp.status == 200:
                 try:
                     txt = resp.text()
                     batch = _parse_tbm_map_text(txt)
@@ -212,6 +228,16 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                 pass
 
             page.goto(url, timeout=18000, wait_until="domcontentloaded")
+
+            # Check for Google rate limits, CAPTCHA, or sorry/index redirects
+            curr_url = page.url or ""
+            if "sorry/index" in curr_url or "google.com/sorry" in curr_url:
+                print(f"[SCRAPER] ⚠️ Google Maps CAPTCHA/Rate limit detected ({curr_url}). Auto-pausing 45 seconds to let block clear...")
+                time.sleep(45)
+                try:
+                    page.goto(url, timeout=20000, wait_until="domcontentloaded")
+                except Exception:
+                    pass
 
             # Fast wait for results or feed (max 1.5s)
             feed = page.locator('div[role="feed"]')
@@ -426,11 +452,7 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
             )
             ctx = browser.new_context(
                 viewport={'width': 800, 'height': 600},
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                )
+                user_agent=get_random_user_agent()
             )
             try:
                 return _execute(ctx)

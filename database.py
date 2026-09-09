@@ -293,6 +293,11 @@ def init_db():
         _add_col("scraped_jobs", "profile_id",        "INTEGER NOT NULL DEFAULT 1")
 
         try:
+            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_biz_profile_maps ON businesses (profile_id, maps_url)")
+        except Exception:
+            pass
+
+        try:
             cur.execute("SELECT COUNT(*) FROM profiles")
             if cur.fetchone()[0] == 0:
                 now = datetime.now().isoformat()
@@ -753,6 +758,38 @@ def update_lead_status(business_id: int, status: str, notes: str = None):
         conn.close()
 
 
+def bulk_update_lead_status(business_ids: list, status: str, notes: str = None) -> int:
+    """Bulk update lead status and notes for multiple businesses in a single batch query."""
+    if not business_ids:
+        return 0
+    conn, is_mysql = get_connection()
+    try:
+        now = datetime.now().isoformat()
+        is_sent_val = 1 if "sent" in status.lower() else (0 if status == "🆕 New Lead" else None)
+
+        set_clauses = ["lead_status=?"]
+        params = [status]
+        if notes is not None:
+            set_clauses.append("notes=?")
+            params.append(notes)
+        if is_sent_val is not None:
+            set_clauses.append("is_sent=?")
+            params.append(is_sent_val)
+        set_clauses.append("updated_at=?")
+        params.append(now)
+
+        placeholders = ",".join(["?" for _ in business_ids])
+        params.extend(business_ids)
+        sql = f"UPDATE businesses SET {', '.join(set_clauses)} WHERE id IN ({placeholders})"
+
+        cur = execute_db(conn, is_mysql, sql, params)
+        if not is_mysql:
+            conn.commit()
+        return cur.rowcount if hasattr(cur, 'rowcount') and cur.rowcount >= 0 else len(business_ids)
+    finally:
+        conn.close()
+
+
 def get_businesses_without_phone(profile_id: int) -> list:
     """Return list of dicts for businesses with no phone number (for phone enrichment)."""
     conn, is_mysql = get_connection()
@@ -799,7 +836,8 @@ def update_business_phone(business_id: int, phone: str = None, phone_2: str = No
 
 def get_businesses(profile_id: int = 1, state: str = None, pincode: str = None,
                    niche: str = None, has_phone: bool = None, has_website: bool = None,
-                   lead_status: str = None, page: int = 1, limit: int = 500) -> pd.DataFrame:
+                   lead_status: str = None, is_sent: int = None,
+                   page: int = 1, limit: int = 500) -> pd.DataFrame:
     conn, is_mysql = get_connection()
     try:
         query = "SELECT * FROM businesses WHERE profile_id=?"
@@ -828,6 +866,12 @@ def get_businesses(profile_id: int = 1, state: str = None, pincode: str = None,
             query += " AND lead_status=?"
             params.append(lead_status)
 
+        if is_sent is not None:
+            if is_sent == 1:
+                query += " AND is_sent = 1"
+            elif is_sent == 0:
+                query += " AND (is_sent = 0 OR is_sent IS NULL)"
+
         offset = max(0, (page - 1) * limit)
         query += " ORDER BY scraped_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
@@ -844,7 +888,7 @@ def get_businesses(profile_id: int = 1, state: str = None, pincode: str = None,
 
 def count_businesses(profile_id: int = 1, state: str = None, pincode: str = None,
                      niche: str = None, has_phone: bool = None, has_website: bool = None,
-                     lead_status: str = None) -> int:
+                     lead_status: str = None, is_sent: int = None) -> int:
     """Return total count of businesses matching filters for pagination/infinite scroll."""
     conn, is_mysql = get_connection()
     try:
@@ -873,6 +917,12 @@ def count_businesses(profile_id: int = 1, state: str = None, pincode: str = None
         if lead_status:
             query += " AND lead_status=?"
             params.append(lead_status)
+
+        if is_sent is not None:
+            if is_sent == 1:
+                query += " AND is_sent = 1"
+            elif is_sent == 0:
+                query += " AND (is_sent = 0 OR is_sent IS NULL)"
 
         cur = execute_db(conn, is_mysql, query, params)
         row = cur.fetchone()

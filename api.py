@@ -11,7 +11,7 @@ Swagger:   http://localhost:8000/docs
 import io
 import time
 import json
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException, Depends, Query, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,7 +25,7 @@ from database import (
     init_db,
     get_all_profiles, get_profile_by_slug, get_profile_by_api_key,
     delete_profile, update_profile,
-    get_businesses, get_business_by_id, update_lead_status,
+    get_businesses, get_business_by_id, update_lead_status, bulk_update_lead_status,
     get_all_businesses_df, get_stats, get_scraped_jobs_df,
     get_distinct_states, get_distinct_niches,
     register_api_user, get_user_by_code, get_all_api_users,
@@ -283,6 +283,7 @@ def profile_businesses(
     has_phone: Optional[bool] = Query(None),
     has_website: Optional[bool] = Query(None),
     lead_status: Optional[str] = Query(None),
+    is_sent: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(100, ge=1, le=1000),
     x_api_key: str = Header(..., alias="X-API-Key"),
@@ -297,13 +298,14 @@ def profile_businesses(
         profile_id=profile["id"],
         state=state, pincode=pincode, niche=niche,
         has_phone=has_phone, has_website=has_website,
-        lead_status=lead_status, page=page, limit=limit
+        lead_status=lead_status, is_sent=is_sent,
+        page=page, limit=limit
     )
     total_count = count_businesses(
         profile_id=profile["id"],
         state=state, pincode=pincode, niche=niche,
         has_phone=has_phone, has_website=has_website,
-        lead_status=lead_status
+        lead_status=lead_status, is_sent=is_sent
     )
     return {
         "profile": profile["name"],
@@ -326,6 +328,29 @@ def profile_get_business(slug: str, business_id: int,
     if not biz or biz.get("profile_id") != profile["id"]:
         raise HTTPException(status_code=404, detail="Business not found in this profile.")
     return biz
+
+
+class BatchStatusUpdate(BaseModel):
+    business_ids: List[int]
+    lead_status: str
+    notes: Optional[str] = None
+
+
+@app.patch("/api/profiles/{slug}/businesses/batch-status", tags=["Profile Data"])
+def profile_bulk_update_lead_status(
+    slug: str,
+    payload: BatchStatusUpdate,
+    x_api_key: str = Header(..., alias="X-API-Key"),
+):
+    """Bulk update lead status and notes for multiple businesses in this profile."""
+    profile = require_profile_key(slug, x_api_key)
+    if payload.lead_status not in LEAD_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Choose from: {LEAD_STATUSES}")
+    if not payload.business_ids:
+        return {"success": True, "updated_count": 0}
+
+    count = bulk_update_lead_status(payload.business_ids, payload.lead_status, payload.notes)
+    return {"success": True, "updated_count": count, "new_status": payload.lead_status}
 
 
 @app.patch("/api/profiles/{slug}/businesses/{business_id}/status", tags=["Profile Data"])
@@ -354,6 +379,7 @@ def profile_export_csv(
     niche: Optional[str] = Query(None),
     has_phone: Optional[bool] = Query(None),
     has_website: Optional[bool] = Query(None),
+    is_sent: Optional[int] = Query(None),
     x_api_key: str = Header(..., alias="X-API-Key"),
 ):
     """Download profile businesses as CSV."""
@@ -362,6 +388,7 @@ def profile_export_csv(
         profile_id=profile["id"],
         state=state, pincode=pincode, niche=niche,
         has_phone=has_phone, has_website=has_website,
+        is_sent=is_sent,
         limit=200000
     )
     if df.empty:
@@ -370,11 +397,12 @@ def profile_export_csv(
     df.to_csv(output, index=False)
     output.seek(0)
     target_part = pincode or niche or 'all'
-    filename = f"{slug}_{state or 'all'}_{target_part}.csv".replace(" ", "_")
+    prefix = "unsent_" if is_sent == 0 else ""
+    filename = f"{prefix}{slug}_{state or 'all'}_{target_part}.csv".replace(" ", "_")
     return StreamingResponse(
         io.BytesIO(output.getvalue().encode()),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
 
 

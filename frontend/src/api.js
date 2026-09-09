@@ -131,6 +131,18 @@ export async function updateLeadStatus(slug, businessId, status, notes, apiKey) 
   });
 }
 
+export async function bulkUpdateLeadStatus(slug, businessIds, status, notes = null, apiKey) {
+  return request(`/api/profiles/${slug}/businesses/batch-status`, {
+    method: "PATCH",
+    headers: { "X-API-Key": apiKey || ADMIN_API_KEY },
+    body: {
+      business_ids: businessIds,
+      lead_status: status,
+      notes: notes
+    }
+  });
+}
+
 // ── Scraping Engine ─────────────────────────────────────────────────────────
 export async function startScraping(data) {
   return request("/api/scrape/start", {
@@ -233,11 +245,12 @@ export async function getProfileCoverage(slug, apiKey) {
   });
 }
 
-export function getExportCsvUrl(slug, apiKey, state, pincode, niche) {
+export function getExportCsvUrl(slug, apiKey, state, pincode, niche, isSent = null) {
   const base = getApiBaseUrl();
   const query = new URLSearchParams();
   if (state) query.append("state", state);
   if (pincode) query.append("pincode", pincode);
   if (niche) query.append("niche", niche);
+  if (isSent !== null && isSent !== undefined) query.append("is_sent", isSent);
   return `${base}/api/profiles/${slug}/export/csv?${query.toString()}`;
 }

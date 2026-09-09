@@ -220,6 +220,10 @@ export default function DataTab({ activeProfile, onDataChanged }) {
     ? getExportCsvUrl(activeProfile.slug, activeProfile.api_key, selectedState, selectedPincode)
     : "#";
 
+  const exportUnsentUrl = activeProfile
+    ? getExportCsvUrl(activeProfile.slug, activeProfile.api_key, selectedState, selectedPincode, undefined, 0)
+    : "#";
+
   return (
     <div className="space-y-6">
       
@@ -262,6 +266,19 @@ export default function DataTab({ activeProfile, onDataChanged }) {
               <Zap className="w-4 h-4" /> Find Missing Phones
             </button>
           )}
+
+          {/* Export Unsent Only CSV */}
+          <a
+            href={exportUnsentUrl}
+            target="_blank"
+            rel="noreferrer"
+            title="Download CSV containing only unsent leads"
+            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 text-xs font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-amber-500/20 transition flex items-center gap-2"
+          >
+            <Download className="w-4 h-4" /> Export Unsent Leads CSV
+          </a>
+
+          {/* Complete CSV */}
           <a
             href={exportUrl}
             target="_blank"
@@ -419,6 +436,32 @@ export default function DataTab({ activeProfile, onDataChanged }) {
         </button>
       </div>
 
+      {/* Quick Pincode Jump Bar */}
+      {groupedList.length > 1 && (
+        <div className="sticky top-2 z-20 bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl p-2.5 px-4 shadow-xl flex items-center gap-3 overflow-x-auto text-xs">
+          <span className="text-slate-400 font-semibold whitespace-nowrap flex items-center gap-1.5 shrink-0">
+            <span>📍</span> Quick Jump:
+          </span>
+          <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto py-0.5">
+            {groupedList.map(({ pincode, unsent, sent }) => (
+              <button
+                key={pincode}
+                onClick={() => {
+                  const el = document.getElementById(`pincode-group-${pincode}`);
+                  if (el) {
+                    el.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }
+                }}
+                className="px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/50 border border-slate-700 text-slate-300 font-mono text-[11px] font-medium transition whitespace-nowrap flex items-center gap-1 shrink-0"
+              >
+                <span>{pincode}</span>
+                <span className="text-[10px] text-slate-500">({unsent.length + sent.length})</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Pincode-grouped Data */}
       {loading ? (
         <div className="p-16 text-center text-slate-400 text-xs bg-slate-900 border border-slate-800 rounded-2xl">
@@ -432,7 +475,11 @@ export default function DataTab({ activeProfile, onDataChanged }) {
       ) : (
         <div className="space-y-4">
           {groupedList.map(({ pincode, state, unsent, sent }) => (
-            <div key={`${pincode}-${state}`} className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div
+              key={`${pincode}-${state}`}
+              id={`pincode-group-${pincode}`}
+              className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl scroll-mt-16"
+            >
               {/* Pincode Header */}
               <div className="px-5 py-3 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
                 <div className="flex items-center gap-3">
