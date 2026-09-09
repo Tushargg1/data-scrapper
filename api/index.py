@@ -33,7 +33,7 @@ from database import (
     get_distinct_states, get_distinct_niches,
     register_api_user, get_user_by_code, get_all_api_users,
     update_user_status, get_and_mark_unsent_batch, get_batch_delivery_stats,
-    clear_all_data,
+    clear_all_data, get_covered_summary,
 )
 from profiles_manager import create_new_profile, get_template_names, get_template
 from niches import ALL_NICHES, ALL_INDUSTRY_NICHES, LEAD_STATUSES
@@ -335,6 +335,13 @@ def profile_jobs(slug: str, x_api_key: str = Header(..., alias="X-API-Key")):
     return {"profile": profile["name"], "total_jobs": len(df), "jobs": df_to_records(df)}
 
 
+@app.get("/api/profiles/{slug}/coverage", tags=["Profile Data"])
+def profile_coverage(slug: str, x_api_key: str = Header(..., alias="X-API-Key")):
+    """Get covered pincode/niche combinations for this profile."""
+    profile = require_profile_key(slug, x_api_key)
+    return get_covered_summary(profile_id=profile["id"])
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # GLOBAL REFERENCE ENDPOINTS  (admin key)
 # ════════════════════════════════════════════════════════════════════════════
@@ -524,6 +531,7 @@ class ScrapeStartRequest(BaseModel):
     pincodes: list[str]
     niches: list[str]
     max_scrolls: int = 3
+    rescan_covered: bool = False
 
 
 @app.post("/api/scrape/start", tags=["Scraping Engine"])
@@ -539,7 +547,8 @@ def api_start_scrape(body: ScrapeStartRequest):
         state=body.state.strip(),
         pincodes=[p.strip() for p in body.pincodes if p.strip()],
         niches=[n.strip() for n in body.niches if n.strip()],
-        max_scrolls=body.max_scrolls
+        max_scrolls=body.max_scrolls,
+        rescan_covered=body.rescan_covered
     )
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("message"))

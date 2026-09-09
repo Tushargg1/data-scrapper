@@ -213,6 +213,12 @@ export async function getJobHistory(slug, apiKey) {
   return res.jobs || [];
 }
 
+export async function getProfileCoverage(slug, apiKey) {
+  return request(`/api/profiles/${slug}/coverage`, {
+    headers: { "X-API-Key": apiKey || ADMIN_API_KEY }
+  });
+}
+
 export function getExportCsvUrl(slug, apiKey, state, niche) {
   const base = getApiBaseUrl();
   const query = new URLSearchParams();

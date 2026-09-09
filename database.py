@@ -414,6 +414,34 @@ def is_already_scraped(pincode: str, niche: str, profile_id: int = 1) -> bool:
         conn.close()
 
 
+def get_covered_summary(profile_id: int = 1) -> dict:
+    """Return map of {pincode: [niches...]} and list of covered pincodes for a profile."""
+    conn, is_mysql = get_connection()
+    try:
+        cur = execute_db(conn, is_mysql, """
+            SELECT pincode, niche, scraped_at, results_count 
+            FROM scraped_jobs 
+            WHERE profile_id=? 
+            ORDER BY scraped_at DESC
+        """, (profile_id,))
+        rows = cur.fetchall()
+        pincode_map = {}
+        for r in rows:
+            pc = str(r["pincode"])
+            niche = r["niche"]
+            if pc not in pincode_map:
+                pincode_map[pc] = []
+            if niche not in pincode_map[pc]:
+                pincode_map[pc].append(niche)
+        return {
+            "total_jobs": len(rows),
+            "covered_pincodes": list(pincode_map.keys()),
+            "pincode_niches": pincode_map
+        }
+    finally:
+        conn.close()
+
+
 def mark_as_scraped(state: str, pincode: str, niche: str,
                     results_count: int, profile_id: int = 1):
     conn, is_mysql = get_connection()

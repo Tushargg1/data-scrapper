@@ -4,7 +4,7 @@ import {
   Phone, Globe, Star, ExternalLink, AlertCircle, CheckCircle2, 
   Loader2, RefreshCw, Layers 
 } from "lucide-react";
-import { getStates, getPincodes, startScraping, getScrapeStatus, stopScraping } from "../api";
+import { getStates, getPincodes, startScraping, getScrapeStatus, stopScraping, getProfileCoverage } from "../api";
 
 export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab }) {
   const [states, setStates] = useState([]);
@@ -25,6 +25,11 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  // Coverage tracking
+  const [coverage, setCoverage] = useState({ covered_pincodes: [], pincode_niches: {}, total_jobs: 0 });
+  const [rescanCovered, setRescanCovered] = useState(false);
+  const [loadingCoverage, setLoadingCoverage] = useState(false);
 
   const pollIntervalRef = useRef(null);
 
@@ -52,6 +57,7 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
     if (!selectedState) {
       setPincodes([]);
       setSelectedPincodes([]);
+      setCoverage({ covered_pincodes: [], pincode_niches: {}, total_jobs: 0 });
       return;
     }
 
@@ -67,7 +73,16 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
         setPincodes([]);
       })
       .finally(() => setLoadingPincodes(false));
-  }, [selectedState]);
+
+    // Fetch coverage data for this profile
+    if (activeProfile) {
+      setLoadingCoverage(true);
+      getProfileCoverage(activeProfile.slug, activeProfile.api_key)
+        .then((data) => setCoverage(data || { covered_pincodes: [], pincode_niches: {}, total_jobs: 0 }))
+        .catch(() => {})
+        .finally(() => setLoadingCoverage(false));
+    }
+  }, [selectedState, activeProfile]);
 
   // Polling loop
   const fetchStatus = async () => {
@@ -153,7 +168,8 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
         state: selectedState,
         pincodes: selectedPincodes,
         niches: allNiches,
-        max_scrolls: Number(maxScrolls)
+        max_scrolls: Number(maxScrolls),
+        rescan_covered: rescanCovered
       });
       // Start fast polling
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -411,26 +427,74 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-1.5 max-h-56 overflow-y-auto p-1 bg-slate-950 border border-slate-800 rounded-lg">
-                  {pincodes.map((pc) => (
-                    <label
-                      key={pc}
-                      className={`flex items-center gap-2 p-1.5 rounded text-xs cursor-pointer transition ${
-                        selectedPincodes.includes(pc) ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/30" : "text-slate-400 hover:bg-slate-900"
+                  {pincodes.map((pc) => {
+                    const isCovered = coverage.covered_pincodes?.includes(pc);
+                    const nicheCount = isCovered ? (coverage.pincode_niches?.[pc] || []).length : 0;
+                    return (
+                      <label
+                        key={pc}
+                        className={`flex items-center gap-2 p-1.5 rounded text-xs cursor-pointer transition ${
+                          selectedPincodes.includes(pc)
+                            ? isCovered
+                              ? "bg-amber-500/10 text-amber-300 border border-amber-500/30"
+                              : "bg-emerald-500/10 text-emerald-300 border border-emerald-500/30"
+                            : "text-slate-400 hover:bg-slate-900"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedPincodes.includes(pc)}
+                          onChange={() => handleTogglePincode(pc)}
+                          className="rounded border-slate-700 text-emerald-500 focus:ring-0"
+                        />
+                        <span className="font-mono">{pc}</span>
+                        {isCovered && (
+                          <span className="ml-auto text-[9px] bg-amber-500/20 text-amber-400 px-1 py-0.5 rounded border border-amber-500/30 shrink-0">
+                            ✓{nicheCount}
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Rescan covered toggle — only show when there are covered pincodes */}
+              {coverage.covered_pincodes?.length > 0 && selectedState && (
+                <div className="mt-2 p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl space-y-2">
+                  <p className="text-[11px] text-amber-300 font-semibold">
+                    ⚠️ {coverage.covered_pincodes.length} pincode{coverage.covered_pincodes.length > 1 ? "s" : ""} already scraped ({coverage.total_jobs} job{coverage.total_jobs !== 1 ? "s" : ""} total)
+                  </p>
+                  <p className="text-[10px] text-slate-400">How should the scraper handle already-covered pincode+niche combos?</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRescanCovered(false)}
+                      className={`flex-1 text-[11px] px-2 py-1.5 rounded-lg border font-semibold transition ${
+                        !rescanCovered
+                          ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-300"
+                          : "bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600"
                       }`}
                     >
-                      <input
-                        type="checkbox"
-                        checked={selectedPincodes.includes(pc)}
-                        onChange={() => handleTogglePincode(pc)}
-                        className="rounded border-slate-700 text-emerald-500 focus:ring-0"
-                      />
-                      <span className="font-mono">{pc}</span>
-                    </label>
-                  ))}
+                      ⏭ Skip & Continue
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRescanCovered(true)}
+                      className={`flex-1 text-[11px] px-2 py-1.5 rounded-lg border font-semibold transition ${
+                        rescanCovered
+                          ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                          : "bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600"
+                      }`}
+                    >
+                      🔁 Re-scrape All
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
           )}
+
 
           {/* Depth Slider */}
           <div className="pt-2 border-t border-slate-800">
