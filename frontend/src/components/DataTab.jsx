@@ -179,21 +179,24 @@ export default function DataTab({ activeProfile, onDataChanged }) {
 
   const handleClearAllData = async () => {
     if (!activeProfile) return;
-    if (!window.confirm(`⚠️ Are you sure you want to delete ALL scraped records for profile "${activeProfile.name}"?\n\nThis will permanently wipe all business records and job history so you can start a fresh extraction.`)) {
-      return;
-    }
+    const enteredPassword = window.prompt(
+      `🔒 SECURITY VERIFICATION REQUIRED\n\nPermanently wiping ALL scraped records and job history for "${activeProfile.name}".\n\nEnter the deletion password to authorize:`
+    );
+    if (!enteredPassword) return; // User canceled or entered nothing
+
     setClearingData(true);
     try {
-      await clearProfileData(activeProfile.slug, activeProfile.api_key);
-      await fetchRecords();
+      await clearProfileData(activeProfile.slug, activeProfile.api_key, enteredPassword.trim());
+      await fetchRecords(1, true);
       if (onDataChanged) onDataChanged();
-      alert("✅ All old data deleted successfully. You can now start fresh extraction!");
+      alert("✅ All data wiped successfully. You can now start fresh extraction!");
     } catch (err) {
-      alert(err.message || "Failed to delete data.");
+      alert("❌ Deletion Failed: " + (err.message || "Incorrect deletion password."));
     } finally {
       setClearingData(false);
     }
   };
+
 
   const filtered = useMemo(() => businesses.filter((b) => {
     if (selectedPincode && b.pincode !== selectedPincode) return false;

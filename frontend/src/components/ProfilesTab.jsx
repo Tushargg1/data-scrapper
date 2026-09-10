@@ -79,17 +79,20 @@ export default function ProfilesTab({ profiles, onProfileCreated, onProfileDelet
   };
 
   const handleDelete = async (slug, profileName) => {
-    if (!window.confirm(`Are you sure you want to delete profile "${profileName}" and all its data? This cannot be undone.`)) {
-      return;
-    }
+    const enteredPassword = window.prompt(
+      `🔒 SECURITY VERIFICATION REQUIRED\n\nPermanently deleting profile "${profileName}" and all its scraped business records.\n\nEnter the deletion password to authorize:`
+    );
+    if (!enteredPassword) return;
 
     try {
-      await deleteProfile(slug);
+      await deleteProfile(slug, enteredPassword.trim());
       if (onProfileDeleted) onProfileDeleted(slug);
+      alert(`✅ Profile "${profileName}" was deleted successfully.`);
     } catch (err) {
-      alert(err.message || "Failed to delete profile.");
+      alert("❌ Deletion Failed: " + (err.message || "Incorrect deletion password."));
     }
   };
+
 
   const copyKey = (slug, key) => {
     navigator.clipboard.writeText(key);

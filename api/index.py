@@ -45,7 +45,7 @@ from database import (
 from profiles_manager import create_new_profile, get_template_names, get_template
 from niches import ALL_NICHES, ALL_INDUSTRY_NICHES, LEAD_STATUSES
 from pincodes import get_states, get_pincodes_for_state
-from config import ADMIN_API_KEY, APP_NAME, APP_VERSION, API_PORT
+from config import ADMIN_API_KEY, DATA_DELETE_PASSWORD, APP_NAME, APP_VERSION, API_PORT
 from phone_enricher import (
     start_enrichment_thread, stop_enrichment,
     get_enrich_status, is_enrichment_running,
@@ -108,6 +108,35 @@ def require_profile_key(slug: str, x_api_key: str = Header(..., alias="X-API-Key
     if not profile:
         raise HTTPException(status_code=404, detail=f"Profile '{slug}' not found.")
     return profile
+
+
+async def require_delete_password(
+    request: Request,
+    x_delete_password: Optional[str] = Header(None, alias="X-Delete-Password"),
+    delete_password: Optional[str] = Query(None)
+):
+    """
+    Strict security verification: requires password 'Tushar@123delete'
+    before allowing any data wipe or profile deletion.
+    """
+    provided = x_delete_password or delete_password
+    if not provided:
+        provided = request.query_params.get("delete_password") or request.headers.get("x-delete-password")
+    if not provided:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                provided = body.get("delete_password") or body.get("password")
+        except Exception:
+            pass
+
+    if not provided or str(provided).strip() != DATA_DELETE_PASSWORD:
+        raise HTTPException(
+            status_code=403,
+            detail="Security Verification Failed: Incorrect deletion password. Data deletion requires authorization."
+        )
+    return True
+
 
 
 def df_to_records(df: pd.DataFrame) -> list:
@@ -299,10 +328,11 @@ def update_profile_endpoint(slug: str, name: str = None, description: str = None
     return {"success": True, "profile": get_profile_by_slug(slug)}
 
 
-@app.delete("/api/profiles/{slug}", tags=["Profiles (Admin)"], dependencies=[Depends(require_admin)])
+@app.delete("/api/profiles/{slug}", tags=["Profiles (Admin)"], dependencies=[Depends(require_admin), Depends(require_delete_password)])
 def delete_profile_endpoint(slug: str):
     """
     ⚠️ Delete a profile AND all its scraped data permanently.
+    Requires master admin key AND data deletion password 'Tushar@123delete'.
     """
     profile = get_profile_by_slug(slug)
     if not profile:
@@ -311,12 +341,16 @@ def delete_profile_endpoint(slug: str):
     return {"success": True, "message": f"Profile '{slug}' and all its data deleted."}
 
 
-@app.delete("/api/profiles/{slug}/data", tags=["Profile Data"])
+@app.delete("/api/profiles/{slug}/data", tags=["Profile Data"], dependencies=[Depends(require_delete_password)])
 def clear_profile_data_endpoint(slug: str, x_api_key: str = Header(..., alias="X-API-Key")):
-    """Clear all scraped businesses and jobs for a profile so you can start fresh."""
+    """
+    Clear all scraped businesses and jobs for a profile so you can start fresh.
+    Requires profile API key AND data deletion password 'Tushar@123delete'.
+    """
     profile = require_profile_key(slug, x_api_key)
     clear_all_data(profile["id"])
     return {"success": True, "message": f"All data for profile '{slug}' cleared successfully."}
+
 
 
 

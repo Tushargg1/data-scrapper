@@ -60,7 +60,7 @@ def ensure_playwright_installed():
 
 
 # ── Resource Blocking — maximise speed & minimise Chromium RAM ────────────────
-BLOCKED_RESOURCE_TYPES = {'image', 'media', 'font', 'stylesheet', 'other'}
+BLOCKED_RESOURCE_TYPES = {'image', 'media', 'font'}
 BLOCKED_URL_SUBSTRINGS = (
     # Analytics / telemetry
     'google-analytics', 'play.google.com/log', 'stats.g.doubleclick',

@@ -67,19 +67,26 @@ export async function createProfile(data) {
   });
 }
 
-export async function deleteProfile(slug) {
-  return request(`/api/profiles/${slug}`, {
+export async function deleteProfile(slug, deletePassword = "") {
+  return request(`/api/profiles/${slug}?delete_password=${encodeURIComponent(deletePassword)}`, {
     method: "DELETE",
-    headers: { "X-API-Key": ADMIN_API_KEY }
+    headers: {
+      "X-API-Key": ADMIN_API_KEY,
+      ...(deletePassword ? { "X-Delete-Password": deletePassword } : {})
+    }
   });
 }
 
-export async function clearProfileData(slug, apiKey) {
-  return request(`/api/profiles/${slug}/data`, {
+export async function clearProfileData(slug, apiKey, deletePassword = "") {
+  return request(`/api/profiles/${slug}/data?delete_password=${encodeURIComponent(deletePassword)}`, {
     method: "DELETE",
-    headers: { "X-API-Key": apiKey || ADMIN_API_KEY }
+    headers: {
+      "X-API-Key": apiKey || ADMIN_API_KEY,
+      ...(deletePassword ? { "X-Delete-Password": deletePassword } : {})
+    }
   });
 }
+
 
 export async function getTemplates() {
   const res = await request("/api/profiles/templates", {

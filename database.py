@@ -748,8 +748,8 @@ def save_single_business(state: str, pincode: str, niche: str,
         clean_target = re.sub(r'[^\w\s\-\.,]', '', clean_target)
         maps_url = f"https://www.google.com/maps/search/?api=1&query={clean_target.replace(' ', '+')}"
 
-    # Use the thread-local pool so scraper threads avoid per-call SSL handshakes
     conn, is_mysql = get_connection(use_thread_pool=True)
+    cur = None
     now = datetime.now().isoformat()
     inserted = False
     try:
@@ -817,6 +817,11 @@ def save_single_business(state: str, pincode: str, niche: str,
         print(f"[DB] Error saving business: {e}")
         return False
     finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
         # Pooled MySQL connections are kept alive — don't close them here.
         # SQLite connections are always closed normally.
         if not is_mysql:
