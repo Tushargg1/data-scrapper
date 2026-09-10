@@ -273,10 +273,10 @@ def run_phone_enrichment(profile_id: int, business_ids: list = None):
                         p1_digits = re.sub(r'\D', '', existing_phone)[-10:]
 
                         if not existing_phone or existing_phone in ("N/A", ""):
-                            update_business_phone(biz_id, phone=found_phone, phone_2=None)
+                            update_business_phone(biz_id, phone=found_phone, phone_2=None, source="Extracted through other medium")
                         elif found_digits and found_digits != p1_digits:
                             # Genuinely different secondary number!
-                            update_business_phone(biz_id, phone=None, phone_2=found_phone)
+                            update_business_phone(biz_id, phone=None, phone_2=found_phone, source="Extracted through other medium")
                         else:
                             print(f"[ENRICH] {found_phone} matches existing phone, skipping phone_2 duplicate.")
 

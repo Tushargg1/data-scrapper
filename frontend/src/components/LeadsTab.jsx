@@ -362,6 +362,11 @@ export default function LeadsTab({ activeProfile }) {
                               <Phone className="w-3 h-3 text-emerald-400" />
                               {b.phone}
                             </a>
+                            {((b.phone_source && b.phone_source.toLowerCase().includes("other")) || (b.notes && b.notes.toLowerCase().includes("extracted through other medium"))) && (
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30 font-sans font-medium">
+                                Extracted through other medium
+                              </span>
+                            )}
                           </div>
                         ) : (
                           <span className="text-slate-600 text-xs">No primary phone</span>

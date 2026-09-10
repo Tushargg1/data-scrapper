@@ -180,6 +180,7 @@ def init_db():
                 phone VARCHAR(100),
                 phone_2 VARCHAR(100) DEFAULT '',
                 phone_3 VARCHAR(100) DEFAULT '',
+                phone_source VARCHAR(100) DEFAULT 'Google Maps',
                 website_available VARCHAR(50),
                 website_link TEXT,
                 maps_url VARCHAR(500),
@@ -240,6 +241,18 @@ def init_db():
                 updated_at VARCHAR(100) NOT NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
+
+        # MySQL safe migrations
+        try:
+            cur.execute("""
+                SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'businesses' AND COLUMN_NAME = 'phone_source'
+            """)
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE businesses ADD COLUMN phone_source VARCHAR(100) DEFAULT 'Google Maps'")
+        except Exception:
+            pass
+
 
 
         # Auto-seed default profile if empty
@@ -304,6 +317,7 @@ def init_db():
                 phone            TEXT,
                 phone_2          TEXT DEFAULT '',
                 phone_3          TEXT DEFAULT '',
+                phone_source     TEXT DEFAULT 'Google Maps',
                 website_available TEXT,
                 website_link     TEXT,
                 maps_url         TEXT,
@@ -372,6 +386,7 @@ def init_db():
         _add_col("businesses",   "profile_id",        "INTEGER NOT NULL DEFAULT 1")
         _add_col("businesses",   "phone_2",           "TEXT DEFAULT ''")
         _add_col("businesses",   "phone_3",           "TEXT DEFAULT ''")
+        _add_col("businesses",   "phone_source",      "TEXT DEFAULT 'Google Maps'")
         _add_col("businesses",   "lead_status",       "TEXT DEFAULT '🆕 New Lead'")
         _add_col("businesses",   "notes",             "TEXT DEFAULT ''")
         _add_col("businesses",   "updated_at",        "TEXT")
@@ -912,26 +927,43 @@ def get_businesses_without_phone(profile_id: int) -> list:
         conn.close()
 
 
-def update_business_phone(business_id: int, phone: str = None, phone_2: str = None):
-    """Update phone and/or phone_2 for a business. Only updates non-None values.
-    Never overwrites an existing non-empty phone with None."""
+def update_business_phone(business_id: int, phone: str = None, phone_2: str = None, source: str = "Extracted through other medium"):
+    """
+    Update phone and/or phone_2 for a business.
+    Sets phone_source and appends 'Extracted through other medium' to notes so
+    the extraction method is permanently tracked and communicated when sent.
+    """
     conn, is_mysql = get_connection()
     try:
         now = datetime.now().isoformat()
+        tag = "Extracted through other medium"
+
+        # Fetch existing notes
+        cur = execute_db(conn, is_mysql, "SELECT notes FROM businesses WHERE id=?", (business_id,))
+        row = cur.fetchone()
+        existing_notes = ""
+        if row:
+            existing_notes = (row["notes"] if isinstance(row, dict) else row[0]) or ""
+
+        if tag not in existing_notes:
+            new_notes = f"{existing_notes} [{tag}]".strip() if existing_notes else tag
+        else:
+            new_notes = existing_notes
+
         if phone is not None and phone_2 is not None:
             execute_db(conn, is_mysql,
-                "UPDATE businesses SET phone=?, phone_2=?, updated_at=? WHERE id=?",
-                (phone, phone_2, now, business_id)
+                "UPDATE businesses SET phone=?, phone_2=?, phone_source=?, notes=?, updated_at=? WHERE id=?",
+                (phone, phone_2, source, new_notes, now, business_id)
             )
         elif phone is not None:
             execute_db(conn, is_mysql,
-                "UPDATE businesses SET phone=?, updated_at=? WHERE id=?",
-                (phone, now, business_id)
+                "UPDATE businesses SET phone=?, phone_source=?, notes=?, updated_at=? WHERE id=?",
+                (phone, source, new_notes, now, business_id)
             )
         elif phone_2 is not None:
             execute_db(conn, is_mysql,
-                "UPDATE businesses SET phone_2=?, updated_at=? WHERE id=?",
-                (phone_2, now, business_id)
+                "UPDATE businesses SET phone_2=?, phone_source=?, notes=?, updated_at=? WHERE id=?",
+                (phone_2, source, new_notes, now, business_id)
             )
         if not is_mysql: conn.commit()
     finally:
@@ -1227,7 +1259,9 @@ def get_and_mark_unsent_batch(user_code: str, profile_id: int = None, limit: int
     conn, is_mysql = get_connection()
     try:
         now = datetime.now().isoformat()
-        query = "SELECT * FROM businesses WHERE (is_sent=0 OR is_sent IS NULL)"
+        # Only details with valid numbers will be sent — records without numbers are NEVER sent
+        query = ("SELECT * FROM businesses WHERE (is_sent=0 OR is_sent IS NULL) "
+                 "AND phone IS NOT NULL AND phone != '' AND phone != 'N/A'")
         params = []
         if profile_id:
             query += " AND profile_id=?"

@@ -253,8 +253,11 @@ export default function DataTab({ activeProfile, onDataChanged }) {
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <span>📋</span> Data Explorer & Export
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Grouped by pincode — unsent leads on top (oldest first), sent leads at bottom.
+          <p className="text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
+            <span>Grouped by pincode — unsent leads on top (oldest first).</span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-medium">
+              🌙 Night Auto-Extraction: 12:00 AM – 8:00 AM IST
+            </span>
           </p>
         </div>
 
@@ -622,7 +625,16 @@ function BusinessRow({ b, copiedId, onCopy }) {
       </td>
       <td className="p-3 font-mono">
         {b.phone && b.phone !== "N/A" ? (
-          <a href={`tel:${b.phone}`} className="text-emerald-400 hover:underline">{b.phone}</a>
+          <div>
+            <a href={`tel:${b.phone}`} className="text-emerald-400 hover:underline">{b.phone}</a>
+            {((b.phone_source && b.phone_source.toLowerCase().includes("other")) || (b.notes && b.notes.toLowerCase().includes("extracted through other medium"))) && (
+              <div>
+                <span className="inline-block px-1.5 py-0.5 rounded text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30 mt-0.5 font-sans font-medium">
+                  Extracted through other medium
+                </span>
+              </div>
+            )}
+          </div>
         ) : (
           <span className="text-slate-600">—</span>
         )}

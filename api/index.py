@@ -50,6 +50,9 @@ from phone_enricher import (
     start_enrichment_thread, stop_enrichment,
     get_enrich_status, is_enrichment_running,
 )
+from night_scheduler import (
+    start_night_scheduler, get_night_scheduler_status, set_night_scheduler_enabled
+)
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -87,6 +90,9 @@ def _warmup():
         print(f"[STARTUP] Playwright warmup error: {e}")
 
 threading.Thread(target=_warmup, daemon=True).start()
+
+# Launch Night Phone Extraction Scheduler (12:00 AM - 8:00 AM IST)
+start_night_scheduler()
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -570,6 +576,19 @@ def stop_enrich(slug: str, x_api_key: str = Header(..., alias="X-API-Key")):
     return {"success": True, "message": "Stop signal sent."}
 
 
+@app.get("/api/enrich/schedule", tags=["Phone Enrichment"])
+def api_enrich_schedule():
+    """Get status of the 12:00 AM to 8:00 AM IST Night Phone Extraction Scheduler."""
+    return get_night_scheduler_status()
+
+
+@app.post("/api/enrich/schedule/toggle", tags=["Phone Enrichment"], dependencies=[Depends(require_admin)])
+def api_enrich_schedule_toggle(enabled: bool = Query(...)):
+    """Enable or disable the Night Phone Extraction Scheduler."""
+    return set_night_scheduler_enabled(enabled)
+
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # GLOBAL REFERENCE ENDPOINTS  (admin key)
 # ════════════════════════════════════════════════════════════════════════════
@@ -718,6 +737,25 @@ def api_get_batch_data(
         else:
             item["website"] = web
         item["website_link"] = item["website"]
+
+        # If number was extracted through other medium, attach explicit notification message
+        phone_source = str(item.get("phone_source") or "")
+        notes = str(item.get("notes") or "")
+        is_other_medium = (
+            "other" in phone_source.lower()
+            or "other medium" in notes.lower()
+            or "justdial" in phone_source.lower()
+            or ("google" in phone_source.lower() and "maps" not in phone_source.lower())
+        )
+        if is_other_medium:
+            item["phone_source"] = "Extracted through other medium"
+            item["extraction_message"] = "Extracted through other medium"
+            item["message"] = "Extracted through other medium"
+        else:
+            item["phone_source"] = "Google Maps"
+            item["extraction_message"] = ""
+            item["message"] = ""
+
         formatted_businesses.append(item)
 
     return {
