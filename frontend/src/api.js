@@ -1,6 +1,6 @@
 import { getApiBaseUrl, ADMIN_API_KEY } from "./config";
 
-async function request(path, options = {}) {
+async function request(path, options = {}, retries = 1) {
   const base = getApiBaseUrl();
   const url = `${base}${path}`;
   const headers = {
@@ -13,20 +13,33 @@ async function request(path, options = {}) {
     options.body = jsonSafeStringify(options.body);
   }
 
-  try {
-    const res = await fetch(url, { ...options, headers });
-    if (!res.ok) {
-      let errDetail = `HTTP ${res.status}`;
-      try {
-        const errJson = await res.json();
-        errDetail = errJson.detail || errJson.error || errDetail;
-      } catch (_) {}
-      throw new Error(errDetail);
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, { ...options, headers });
+      if (!res.ok) {
+        let errDetail = `HTTP ${res.status}`;
+        try {
+          const errJson = await res.json();
+          errDetail = errJson.detail || errJson.error || errDetail;
+        } catch (_) {}
+        throw new Error(errDetail);
+      }
+      return await res.json();
+    } catch (err) {
+      const isNetworkError = (
+        err.name === "TypeError" ||
+        err.message?.includes("Failed to fetch") ||
+        err.message?.includes("NetworkError") ||
+        err.message?.includes("Load failed")
+      );
+      if (isNetworkError && attempt < retries) {
+        console.info(`[API] Retrying ${url} (server waking up, attempt ${attempt + 1}/${retries})...`);
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        continue;
+      }
+      console.error(`API Error on ${url}:`, err);
+      throw err;
     }
-    return await res.json();
-  } catch (err) {
-    console.error(`API Error on ${url}:`, err);
-    throw err;
   }
 }
 

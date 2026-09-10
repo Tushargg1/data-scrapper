@@ -8,6 +8,8 @@ Auth model:
 Run with: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 Swagger:   http://localhost:8000/docs
 """
+import os
+import sys
 import io
 import time
 import json
@@ -84,7 +86,9 @@ def _warmup():
     except Exception as e:
         print(f"[STARTUP] Playwright warmup error: {e}")
 
-threading.Thread(target=_warmup, daemon=True).start()
+# Only run Playwright browser warmup when serving live web traffic (uvicorn)
+if os.getenv("VERCEL") != "1" and ("uvicorn" in sys.argv[0] or any("uvicorn" in m for m in sys.modules)):
+    threading.Thread(target=_warmup, daemon=True).start()
 
 # Launch Night Phone Extraction Scheduler (12:00 AM - 8:00 AM IST)
 start_night_scheduler()
