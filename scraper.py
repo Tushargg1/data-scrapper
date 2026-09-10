@@ -59,14 +59,24 @@ def ensure_playwright_installed():
             print(f"[PLAYWRIGHT] Auto-install failed: {install_err}")
 
 
-BLOCKED_RESOURCE_TYPES = {'image', 'media', 'font'}
+# ── Resource Blocking — maximise speed & minimise Chromium RAM ────────────────
+BLOCKED_RESOURCE_TYPES = {'image', 'media', 'font', 'stylesheet', 'other'}
 BLOCKED_URL_SUBSTRINGS = (
+    # Analytics / telemetry
     'google-analytics', 'play.google.com/log', 'stats.g.doubleclick',
-    'fonts.googleapis', 'fonts.gstatic', 'googleads', 'fls-na.amazon'
+    'googleads', 'doubleclick.net', 'googlesyndication', 'adservice.google',
+    # Fonts
+    'fonts.googleapis', 'fonts.gstatic',
+    # Crash-reporting / background sync
+    'crashlytics', 'sentry.io', 'bugsnag', 'newrelic',
+    # Social pixels
+    'facebook.net', 'twitter.com/i/adsct', 'linkedin.com/px',
+    # Misc trackers
+    'fls-na.amazon', 'amazon-adsystem', 'adsystem',
 )
 
 def _block_unneeded_resources(route):
-    """Blocks images, fonts, media, and trackers for 10x faster loads and ultra-low RAM usage."""
+    """Block images, fonts, stylesheets, media, trackers & analytics for maximum speed & lowest RAM."""
     req = route.request
     url = req.url
     if req.resource_type in BLOCKED_RESOURCE_TYPES or any(b in url for b in BLOCKED_URL_SUBSTRINGS):
@@ -446,8 +456,25 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                     '--disable-dev-shm-usage',
                     '--disable-gpu',
                     '--disable-software-rasterizer',
+                    # Memory reduction
                     '--blink-settings=imagesEnabled=false',
-                    '--js-flags=--max-old-space-size=96'
+                    '--js-flags=--max-old-space-size=96',
+                    # Kill background activity that wastes RAM
+                    '--disable-extensions',
+                    '--disable-component-update',
+                    '--disable-background-networking',
+                    '--disable-background-timer-throttling',
+                    '--disable-client-side-phishing-detection',
+                    '--disable-default-apps',
+                    '--disable-sync',
+                    '--disable-translate',
+                    '--disable-hang-monitor',
+                    '--disable-prompt-on-repost',
+                    '--disable-breakpad',
+                    '--mute-audio',
+                    '--no-first-run',
+                    '--no-default-browser-check',
+                    '--metrics-recording-only',
                 ]
             )
             ctx = browser.new_context(
@@ -458,3 +485,4 @@ def scrape_google_maps(niche: str, pincode: str, max_scrolls: int = 5, on_item_s
                 return _execute(ctx)
             finally:
                 browser.close()
+

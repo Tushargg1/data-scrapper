@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { 
   Download, Search, Phone, Globe, Star, ExternalLink,
   Loader2, RefreshCw, Zap, StopCircle, CheckCircle2, XCircle,
@@ -22,6 +22,9 @@ export default function DataTab({ activeProfile, onDataChanged }) {
   const [clearingData, setClearingData] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const searchDebounceRef = useRef(null);
+
   const [states, setStates] = useState([]);
   const [selectedState, setSelectedState] = useState("");
   const [selectedPincode, setSelectedPincode] = useState("");
@@ -134,6 +137,18 @@ export default function DataTab({ activeProfile, onDataChanged }) {
     return () => clearInterval(enrichPollRef.current);
   }, [activeProfile]);
 
+  // Debounce search input by 150ms to prevent expensive re-filters on every keystroke
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 150);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [search]);
+
+
   const handleStartEnrich = async () => {
     if (!activeProfile) return;
     setEnrichMsg("");
@@ -180,41 +195,43 @@ export default function DataTab({ activeProfile, onDataChanged }) {
     }
   };
 
-  const filtered = businesses.filter((b) => {
+  const filtered = useMemo(() => businesses.filter((b) => {
     if (selectedPincode && b.pincode !== selectedPincode) return false;
     if (deliveryFilter === "sent" && !b.is_sent) return false;
     if (deliveryFilter === "unsent" && b.is_sent) return false;
-    if (!search) return true;
-    const q = search.toLowerCase();
+    if (!debouncedSearch) return true;
+    const q = debouncedSearch.toLowerCase();
     const str = [
       b.name, b.niche, b.phone, b.phone_2, b.pincode, b.state, b.rating, b.sent_to_user_code,
       b.is_sent ? "sent" : "unsent"
     ].filter(Boolean).join(" ").toLowerCase();
     return str.includes(q);
-  });
+  }), [businesses, selectedPincode, deliveryFilter, debouncedSearch]);
 
-  const availablePincodes = Array.from(
+  const availablePincodes = useMemo(() => Array.from(
     new Set([
       ...statePincodes,
       ...businesses.map((b) => b.pincode).filter(Boolean)
     ])
-  ).sort();
+  ).sort(), [statePincodes, businesses]);
 
-  // Group by pincode: unsent first (sorted by id ASC = oldest first), then sent (id ASC)
-  const grouped = {};
-  filtered.forEach((b) => {
-    const key = `${b.pincode}||${b.state}`;
-    if (!grouped[key]) grouped[key] = { pincode: b.pincode, state: b.state, unsent: [], sent: [] };
-    if (b.is_sent) grouped[key].sent.push(b);
-    else grouped[key].unsent.push(b);
-  });
-  // Sort each group internally by id ASC (oldest scraped at top for unsent, bottom for sent)
-  Object.values(grouped).forEach(g => {
-    g.unsent.sort((a, b) => a.id - b.id);
-    g.sent.sort((a, b) => a.id - b.id);
-  });
-  // Sort pincode groups by pincode number
-  const groupedList = Object.values(grouped).sort((a, b) => (a.pincode || "").localeCompare(b.pincode || ""));
+  // Group by pincode — memoized so it only recalculates when filtered list changes
+  const groupedList = useMemo(() => {
+    const grouped = {};
+    filtered.forEach((b) => {
+      const key = `${b.pincode}||${b.state}`;
+      if (!grouped[key]) grouped[key] = { pincode: b.pincode, state: b.state, unsent: [], sent: [] };
+      if (b.is_sent) grouped[key].sent.push(b);
+      else grouped[key].unsent.push(b);
+    });
+    Object.values(grouped).forEach(g => {
+      g.unsent.sort((a, b) => a.id - b.id);
+      g.sent.sort((a, b) => a.id - b.id);
+    });
+    return Object.values(grouped).sort((a, b) => (a.pincode || "").localeCompare(b.pincode || ""));
+  }, [filtered]);
+
+
 
   const exportUrl = activeProfile 
     ? getExportCsvUrl(activeProfile.slug, activeProfile.api_key, selectedState, selectedPincode)

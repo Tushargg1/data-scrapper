@@ -8,7 +8,8 @@ import time
 from database import (
     save_single_business, mark_as_scraped, is_already_scraped,
     get_profile_by_slug, get_all_profiles,
-    save_scrape_session, complete_scrape_session, get_scrape_session
+    save_scrape_session, complete_scrape_session, get_scrape_session,
+    _release_thread_mysql
 )
 from scraper import scrape_google_maps, get_random_user_agent
 
@@ -50,8 +51,25 @@ def _launch_browser_and_context(playwright_inst):
             '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-software-rasterizer',
+            # Memory reduction
             '--blink-settings=imagesEnabled=false',
-            '--js-flags=--max-old-space-size=96'
+            '--js-flags=--max-old-space-size=96',
+            # Kill background activity that wastes RAM on cloud servers
+            '--disable-extensions',
+            '--disable-component-update',
+            '--disable-background-networking',
+            '--disable-background-timer-throttling',
+            '--disable-client-side-phishing-detection',
+            '--disable-default-apps',
+            '--disable-sync',
+            '--disable-translate',
+            '--disable-hang-monitor',
+            '--disable-prompt-on-repost',
+            '--disable-breakpad',
+            '--mute-audio',
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--metrics-recording-only',
         ]
     )
     context = browser.new_context(
@@ -233,6 +251,13 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
             current_scrape_job["status"] = "error"
             current_scrape_job["error"] = str(e)
             current_scrape_job["ended_at"] = time.time()
+
+    finally:
+        # Always release the thread-local MySQL connection when the worker exits
+        try:
+            _release_thread_mysql()
+        except Exception:
+            pass
 
 
 

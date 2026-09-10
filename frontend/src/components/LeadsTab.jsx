@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { 
   Search, Filter, Phone, Globe, Star, MapPin, 
   CheckCircle, MessageSquare, ExternalLink, Loader2, Edit3, CheckSquare, Square
@@ -19,6 +19,9 @@ export default function LeadsTab({ activeProfile }) {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const queryDebounceRef = useRef(null);
+
 
   // Bulk Selection
   const [selectedIds, setSelectedIds] = useState([]);
@@ -59,6 +62,17 @@ export default function LeadsTab({ activeProfile }) {
     fetchLeads();
   }, [activeProfile, hasPhone, hasWeb, selectedStatus]);
 
+  // Debounce search query by 150ms
+  useEffect(() => {
+    if (queryDebounceRef.current) clearTimeout(queryDebounceRef.current);
+    queryDebounceRef.current = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 150);
+    return () => {
+      if (queryDebounceRef.current) clearTimeout(queryDebounceRef.current);
+    };
+  }, [searchQuery]);
+
 
   const handleStatusChange = async (bizId, newStatus, currentNotes) => {
     try {
@@ -87,18 +101,22 @@ export default function LeadsTab({ activeProfile }) {
     }
   };
 
-  const filteredLeads = leads.filter((b) => {
+  const filteredLeads = useMemo(() => leads.filter((b) => {
     // Hide "New Lead" entries by default — they go to batch delivery, not CRM
     if (hideNewLeads && b.lead_status === "🆕 New Lead") return false;
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
+    if (!debouncedQuery) return true;
+    const q = debouncedQuery.toLowerCase();
     const txt = [
       b.name, b.niche, b.phone, b.phone_2, b.pincode, b.state, b.notes, b.lead_status
     ].filter(Boolean).join(" ").toLowerCase();
     return txt.includes(q);
-  });
+  }), [leads, hideNewLeads, debouncedQuery]);
 
-  const newLeadCount = leads.filter((b) => b.lead_status === "🆕 New Lead").length;
+  const newLeadCount = useMemo(
+    () => leads.filter((b) => b.lead_status === "🆕 New Lead").length,
+    [leads]
+  );
+
 
   const handleToggleSelect = (id) => {
     setSelectedIds((prev) =>

@@ -6,13 +6,16 @@ import sqlite3
 import pymysql
 import os
 import json
+import re
 import pandas as pd
 import time
+import threading
 from datetime import datetime
 import hashlib
 import secrets
 import hmac
 import base64
+import functools
 
 # ── Admin Auth Config ─────────────────────────────────────────────────────────
 ADMIN_LOGIN_EMAIL = os.getenv("ADMIN_LOGIN_EMAIL", "tushargoel711@gmail.com")
@@ -35,26 +38,73 @@ if os.getenv("VERCEL") == "1" or "VERCEL" in os.environ or os.getenv("AWS_LAMBDA
 else:
     SQLITE_PATH = os.path.join(os.path.dirname(__file__), "scraper_data.db")
 
+# ── Thread-Local Connection Pool ──────────────────────────────────────────────
+# Each background scraper thread gets its own reusable, persistent MySQL connection
+# so we avoid the ~100–200ms SSL handshake on every single save call.
+_thread_local = threading.local()
 
-def get_connection():
-    """Attempts MySQL connection first; falls back to SQLite if unreachable with a 30s retry backoff."""
+
+def _make_fresh_mysql():
+    """Open a brand-new autocommit MySQL connection with SSL."""
+    return pymysql.connect(
+        host=MYSQL_HOST,
+        port=MYSQL_PORT,
+        user=MYSQL_USER,
+        password=MYSQL_PASS,
+        database=MYSQL_DB,
+        ssl={'ssl': True},
+        cursorclass=pymysql.cursors.DictCursor,
+        autocommit=True,
+        connect_timeout=5
+    )
+
+
+def _get_thread_mysql():
+    """
+    Return the thread-local MySQL connection, re-opening it if it is closed or dead.
+    This means each scraper thread holds exactly ONE persistent TLS connection.
+    """
+    conn = getattr(_thread_local, "mysql_conn", None)
+    if conn is not None:
+        try:
+            conn.ping(reconnect=True)
+            return conn
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            _thread_local.mysql_conn = None
+    fresh = _make_fresh_mysql()
+    _thread_local.mysql_conn = fresh
+    return fresh
+
+
+def _release_thread_mysql():
+    """Explicitly release the thread-local connection (call at end of worker thread)."""
+    conn = getattr(_thread_local, "mysql_conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        _thread_local.mysql_conn = None
+
+
+def get_connection(use_thread_pool: bool = False):
+    """
+    Attempts MySQL first; falls back to SQLite with 30 s retry backoff.
+    Pass use_thread_pool=True inside scraper threads to reuse the per-thread connection.
+    """
     global _last_mysql_fail_time, _mysql_is_healthy
     now = time.time()
 
-    # Only attempt MySQL if enabled and (healthy OR 30 seconds have passed since last failure)
     if USE_MYSQL and (_mysql_is_healthy or (now - _last_mysql_fail_time > 30)):
         try:
-            conn = pymysql.connect(
-                host=MYSQL_HOST,
-                port=MYSQL_PORT,
-                user=MYSQL_USER,
-                password=MYSQL_PASS,
-                database=MYSQL_DB,
-                ssl={'ssl': True},
-                cursorclass=pymysql.cursors.DictCursor,
-                autocommit=True,
-                connect_timeout=3
-            )
+            if use_thread_pool:
+                conn = _get_thread_mysql()
+            else:
+                conn = _make_fresh_mysql()
             _mysql_is_healthy = True
             return conn, True
         except Exception as e:
@@ -66,6 +116,9 @@ def get_connection():
     conn = sqlite3.connect(SQLITE_PATH)
     conn.row_factory = sqlite3.Row
     return conn, False
+
+
+
 
 
 
@@ -687,14 +740,16 @@ def get_existing_businesses_by_urls(profile_id: int, urls: list) -> dict:
 
 def save_single_business(state: str, pincode: str, niche: str,
                          item: dict, profile_id: int = 1) -> bool:
-    """Instantly save a single scraped business item to MySQL or SQLite, automatically updating missing/N/A fields if already exists."""
+    """Instantly save a single scraped business item. Uses thread-local MySQL pool for scraper threads."""
     maps_url = item.get("Google Maps URL", "")
     name = item.get("Name", "")
     if not maps_url or not str(maps_url).startswith("http"):
         clean_target = f"{name}, {pincode}, India".strip(", ")
         clean_target = re.sub(r'[^\w\s\-\.,]', '', clean_target)
         maps_url = f"https://www.google.com/maps/search/?api=1&query={clean_target.replace(' ', '+')}"
-    conn, is_mysql = get_connection()
+
+    # Use the thread-local pool so scraper threads avoid per-call SSL handshakes
+    conn, is_mysql = get_connection(use_thread_pool=True)
     now = datetime.now().isoformat()
     inserted = False
     try:
@@ -762,7 +817,12 @@ def save_single_business(state: str, pincode: str, niche: str,
         print(f"[DB] Error saving business: {e}")
         return False
     finally:
-        conn.close()
+        # Pooled MySQL connections are kept alive — don't close them here.
+        # SQLite connections are always closed normally.
+        if not is_mysql:
+            conn.close()
+
+
 
 
 def update_lead_status(business_id: int, status: str, notes: str = None):

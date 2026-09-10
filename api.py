@@ -11,10 +11,12 @@ Swagger:   http://localhost:8000/docs
 import io
 import time
 import json
+import functools
 from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException, Depends, Query, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 import pandas as pd
@@ -65,6 +67,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Gzip compress all JSON responses > 1KB — saves ~80% bandwidth on lead/data tabs
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 init_db()
 
@@ -543,6 +547,16 @@ def all_niches():
     return {"industries": ALL_INDUSTRY_NICHES, "total": len(ALL_NICHES)}
 
 
+# ── LRU-Cached pincode data (static — never changes at runtime) ───────────────
+@functools.lru_cache(maxsize=1)
+def _cached_all_states():
+    return {"scraped_states": get_distinct_states(), "all_states": get_states()}
+
+@functools.lru_cache(maxsize=64)
+def _cached_pincodes(state: str):
+    return get_pincodes_for_state(state)
+
+
 @app.get("/api/states", tags=["Global (Admin)"], dependencies=[Depends(require_admin)])
 def all_states():
     return {"scraped_states": get_distinct_states(), "all_states": get_states()}
@@ -550,7 +564,7 @@ def all_states():
 
 @app.get("/api/states/{state}/pincodes", tags=["Global (Admin)"], dependencies=[Depends(require_admin)])
 def pincodes_for_state(state: str):
-    pincodes = get_pincodes_for_state(state)
+    pincodes = _cached_pincodes(state)
     if not pincodes:
         raise HTTPException(status_code=404, detail=f"State '{state}' not found.")
     return {"state": state, "total": len(pincodes), "pincodes": pincodes}
@@ -559,6 +573,7 @@ def pincodes_for_state(state: str):
 @app.get("/api/lead-statuses", tags=["Global (Admin)"], dependencies=[Depends(require_admin)])
 def lead_statuses():
     return {"lead_statuses": LEAD_STATUSES}
+
 
 
 # ── User Registration & Batch Models ─────────────────────────────────────────
