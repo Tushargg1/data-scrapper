@@ -15,9 +15,10 @@ export default function DataTab({ activeProfile, onDataChanged }) {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
   const [totalRecords, setTotalRecords] = useState(0);
   const bottomSentinelRef = useRef(null);
+  const isFetchingRef = useRef(false);
 
   const [clearingData, setClearingData] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
@@ -35,9 +36,11 @@ export default function DataTab({ activeProfile, onDataChanged }) {
   const [enrichStatus, setEnrichStatus] = useState(null); // null | status object
   const [enrichMsg, setEnrichMsg] = useState("");
   const enrichPollRef = useRef(null);
+  const wasEnrichRunningRef = useRef(false);
 
   const fetchRecords = async (pageNum = 1, isInitial = false) => {
-    if (!activeProfile) return;
+    if (!activeProfile || isFetchingRef.current) return;
+    isFetchingRef.current = true;
     if (isInitial) {
       setLoading(true);
       setPage(1);
@@ -57,29 +60,35 @@ export default function DataTab({ activeProfile, onDataChanged }) {
       const totalCount = res.total_records !== undefined ? res.total_records : incoming.length;
       setTotalRecords(totalCount);
 
+      const serverHasMore = typeof res.has_more === "boolean"
+        ? res.has_more
+        : (incoming.length === PAGE_SIZE && (pageNum * PAGE_SIZE) < totalCount);
+
       if (isInitial) {
         setBusinesses(incoming);
-        setHasMore(incoming.length === PAGE_SIZE && (pageNum * PAGE_SIZE) < totalCount);
+        setPage(1);
+        setHasMore(serverHasMore);
       } else {
         setBusinesses((prev) => {
           const seen = new Set(prev.map((b) => b.id));
           const newItems = incoming.filter((b) => !seen.has(b.id));
           return [...prev, ...newItems];
         });
-        setHasMore(incoming.length === PAGE_SIZE && (pageNum * PAGE_SIZE) < totalCount);
+        setPage(pageNum);
+        setHasMore(serverHasMore);
       }
     } catch (err) {
       console.error("Failed to load businesses:", err);
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
       setLoadingMore(false);
     }
   };
 
   const loadNextPage = () => {
-    if (loading || loadingMore || !hasMore) return;
+    if (loading || loadingMore || !hasMore || isFetchingRef.current) return;
     const nextPage = page + 1;
-    setPage(nextPage);
     fetchRecords(nextPage, false);
   };
 
@@ -100,42 +109,82 @@ export default function DataTab({ activeProfile, onDataChanged }) {
     fetchRecords(1, true);
   }, [activeProfile, selectedState, selectedPincode]);
 
-  // Infinite scroll observer: trigger loadNextPage when bottom sentinel appears
+  // Infinite scroll observer: trigger loadNextPage only when sentinel is visible and more data exists
   useEffect(() => {
+    if (!hasMore || loading || loadingMore) return;
+    const sentinel = bottomSentinelRef.current;
+    if (!sentinel) return;
+
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loading && !loadingMore) {
+        if (entries[0].isIntersecting && hasMore && !loading && !loadingMore && !isFetchingRef.current) {
           loadNextPage();
         }
       },
-      { threshold: 0.1, rootMargin: "350px" }
+      { threshold: 0.1, rootMargin: "200px" }
     );
 
-    const target = bottomSentinelRef.current;
-    if (target) observer.observe(target);
-
+    observer.observe(sentinel);
     return () => {
-      if (target) observer.unobserve(target);
+      observer.disconnect();
     };
   }, [hasMore, loading, loadingMore, page, activeProfile, selectedState, selectedPincode]);
 
-  // Poll enrichment status if running
+  // Enrichment polling control: ONLY poll while status is 'running', never run in an infinite loop
+  const stopEnrichPolling = () => {
+    if (enrichPollRef.current) {
+      clearInterval(enrichPollRef.current);
+      enrichPollRef.current = null;
+    }
+  };
+
+  const pollEnrichStatus = async () => {
+    if (!activeProfile) return;
+    try {
+      const st = await getEnrichmentStatus(activeProfile.slug, activeProfile.api_key);
+      setEnrichStatus(st);
+      if (st && st.status === "running") {
+        wasEnrichRunningRef.current = true;
+      } else {
+        // Enrichment is not running (completed, stopped, or idle) -> Stop polling immediately!
+        stopEnrichPolling();
+        if (wasEnrichRunningRef.current && st?.status === "completed") {
+          wasEnrichRunningRef.current = false;
+          fetchRecords(1, true); // refresh records once to show newly found phone numbers
+          if (onDataChanged) onDataChanged();
+        }
+      }
+    } catch (err) {
+      // ignore poll network errors
+    }
+  };
+
+  const startEnrichPolling = () => {
+    stopEnrichPolling();
+    enrichPollRef.current = setInterval(pollEnrichStatus, 2000);
+    pollEnrichStatus();
+  };
+
+  // Check initial enrichment status on activeProfile change, only poll if actually running
   useEffect(() => {
     if (!activeProfile) return;
-    enrichPollRef.current = setInterval(async () => {
-      try {
-        const st = await getEnrichmentStatus(activeProfile.slug, activeProfile.api_key);
+    let isMounted = true;
+    getEnrichmentStatus(activeProfile.slug, activeProfile.api_key)
+      .then((st) => {
+        if (!isMounted) return;
         setEnrichStatus(st);
-        if (st && st.status === "completed") {
-          fetchRecords(1, true); // refresh records to show newly found phones
+        if (st && st.status === "running") {
+          wasEnrichRunningRef.current = true;
+          startEnrichPolling();
         }
-      } catch (err) {
-        // ignore poll errors
-      }
-    }, 2000);
+      })
+      .catch(() => {});
 
-    return () => clearInterval(enrichPollRef.current);
-  }, [activeProfile]);
+    return () => {
+      isMounted = false;
+      stopEnrichPolling();
+    };
+  }, [activeProfile?.slug]);
 
   // Debounce search input by 150ms to prevent expensive re-filters on every keystroke
   useEffect(() => {
@@ -148,13 +197,14 @@ export default function DataTab({ activeProfile, onDataChanged }) {
     };
   }, [search]);
 
-
   const handleStartEnrich = async () => {
     if (!activeProfile) return;
     setEnrichMsg("");
     try {
       const res = await startPhoneEnrichment(activeProfile.slug, activeProfile.api_key);
       setEnrichMsg(res.message || "Enrichment started.");
+      wasEnrichRunningRef.current = true;
+      startEnrichPolling();
     } catch (err) {
       setEnrichMsg(`❌ Error: ${err.message}`);
     }
@@ -165,6 +215,13 @@ export default function DataTab({ activeProfile, onDataChanged }) {
     try {
       await stopEnrichment(activeProfile.slug, activeProfile.api_key);
       setEnrichMsg("⏹ Stop signal sent.");
+      stopEnrichPolling();
+      setTimeout(async () => {
+        try {
+          const st = await getEnrichmentStatus(activeProfile.slug, activeProfile.api_key);
+          setEnrichStatus(st);
+        } catch (e) {}
+      }, 500);
     } catch (err) {
       setEnrichMsg(`❌ ${err.message}`);
     }
