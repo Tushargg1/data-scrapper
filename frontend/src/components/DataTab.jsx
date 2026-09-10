@@ -49,11 +49,13 @@ export default function DataTab({ activeProfile, onDataChanged }) {
     }
 
     try {
+      const isSentParam = deliveryFilter === "sent" ? 1 : deliveryFilter === "unsent" ? 0 : undefined;
       const res = await getBusinesses(activeProfile.slug, activeProfile.api_key, {
         page: pageNum,
         limit: PAGE_SIZE,
         state: selectedState || undefined,
-        pincode: selectedPincode || undefined
+        pincode: selectedPincode || undefined,
+        is_sent: isSentParam
       });
 
       const incoming = res.businesses || [];
@@ -107,7 +109,7 @@ export default function DataTab({ activeProfile, onDataChanged }) {
 
   useEffect(() => {
     fetchRecords(1, true);
-  }, [activeProfile, selectedState, selectedPincode]);
+  }, [activeProfile, selectedState, selectedPincode, deliveryFilter]);
 
   // Infinite scroll observer: trigger loadNextPage only when sentinel is visible and more data exists
   useEffect(() => {

@@ -132,6 +132,7 @@ export async function getBusinesses(slug, apiKey, params = {}) {
   if (params.has_phone !== undefined && params.has_phone !== null) query.append("has_phone", params.has_phone);
   if (params.has_website !== undefined && params.has_website !== null) query.append("has_website", params.has_website);
   if (params.lead_status) query.append("lead_status", params.lead_status);
+  if (params.is_sent !== undefined && params.is_sent !== null) query.append("is_sent", params.is_sent);
   query.append("page", params.page || 1);
   query.append("limit", params.limit || 50);
 
