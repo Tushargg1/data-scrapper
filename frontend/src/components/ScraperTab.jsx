@@ -24,10 +24,10 @@ const SCRAPER_PLATFORMS = [
     id: "indiamart",
     name: "IndiaMART",
     icon: "🏭",
-    badge: "Coming Soon",
-    badgeColor: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+    badge: "Active",
+    badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
     description: "B2B wholesale suppliers, direct manufacturers, GST numbers & verified seller inquiries.",
-    status: "coming_soon"
+    status: "ready"
   },
   {
     id: "instagram",
@@ -42,10 +42,10 @@ const SCRAPER_PLATFORMS = [
     id: "justdial",
     name: "JustDial",
     icon: "📞",
-    badge: "Coming Soon",
-    badgeColor: "bg-blue-500/20 text-blue-300 border-blue-500/40",
+    badge: "Active",
+    badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
     description: "Local directory listings, verified mobile contacts, ratings & operational hours.",
-    status: "coming_soon"
+    status: "ready"
   }
 ];
 
@@ -639,24 +639,6 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
             );
           })}
         </div>
-
-        {selectedPlatform !== "google_maps" && (
-          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-base">ℹ️</span>
-              <span>
-                <strong>{SCRAPER_PLATFORMS.find((p) => p.id === selectedPlatform)?.name}</strong> platform option selected. The engine runner currently extracts from Google Maps; this option is structured for the upcoming platform adapter without requiring interface changes.
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSelectedPlatform("google_maps")}
-              className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold rounded-lg text-[11px] transition shrink-0 self-start sm:self-auto"
-            >
-              Switch to Google Maps
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Scraper Configuration Form */}
