@@ -686,10 +686,10 @@ function BusinessRow({ b, copiedId, onCopy }) {
         {b.phone && b.phone !== "N/A" ? (
           <div>
             <a href={`tel:${b.phone}`} className="text-emerald-400 hover:underline">{b.phone}</a>
-            {((b.phone_source && b.phone_source.toLowerCase().includes("other")) || (b.notes && b.notes.toLowerCase().includes("extracted through other medium"))) && (
+            {b.phone_source && (
               <div>
-                <span className="inline-block px-1.5 py-0.5 rounded text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30 mt-0.5 font-sans font-medium">
-                  Extracted through other medium
+                <span className="inline-block px-1.5 py-0.5 rounded text-[9px] bg-blue-500/20 text-blue-300 border border-blue-500/30 mt-0.5 font-sans font-medium uppercase tracking-wider">
+                  Source: {b.phone_source}
                 </span>
               </div>
             )}

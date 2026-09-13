@@ -772,7 +772,23 @@ def save_single_business(state: str, pincode: str, niche: str,
         conn.close()
         time.sleep(5)
 
-    cur = None
+    cur = conn.cursor()
+    
+    # Cross-platform deduplication: Check if business already exists by normalized name in this pincode
+    clean_target_name = re.sub(r'[^a-z0-9]', '', str(name).lower())
+    try:
+        cur.execute("SELECT id, name, phone_source FROM businesses WHERE profile_id=%s AND pincode=%s", (profile_id, pincode))
+        existing_businesses = cur.fetchall()
+        for row in existing_businesses:
+            ex_name = re.sub(r'[^a-z0-9]', '', str(row[1]).lower())
+            if clean_target_name == ex_name and clean_target_name != "":
+                # It's a duplicate from another (or same) platform! Do not add again.
+                # The user requested it should not be added twice.
+                conn.close()
+                return False
+    except Exception as e:
+        print(f"[DB] Dedup check error: {e}")
+
     now = datetime.now().isoformat()
     inserted = False
     try:
