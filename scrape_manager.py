@@ -189,15 +189,30 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
                             if stop_scrape_event.is_set():
                                 break
                             try:
-                                df = scrape_google_maps(
-                                    niche=niche,
-                                    pincode=pc,
-                                    max_scrolls=max_scrolls,
-                                    on_item_scraped=on_item_scraped,
-                                    should_stop=lambda: stop_scrape_event.is_set(),
-                                    context=context,
-                                    profile_id=profile_id
-                                )
+                                if source == "indiamart":
+                                    from indiamart_scraper import scrape_indiamart
+                                    df = scrape_indiamart(
+                                        niche=niche, pincode=pc, max_scrolls=max_scrolls,
+                                        on_item_scraped=on_item_scraped, should_stop=lambda: stop_scrape_event.is_set(),
+                                        context=context, profile_id=profile_id
+                                    )
+                                elif source == "justdial":
+                                    from justdial_scraper import scrape_justdial
+                                    df = scrape_justdial(
+                                        niche=niche, pincode=pc, max_scrolls=max_scrolls,
+                                        on_item_scraped=on_item_scraped, should_stop=lambda: stop_scrape_event.is_set(),
+                                        context=context, profile_id=profile_id
+                                    )
+                                else:
+                                    df = scrape_google_maps(
+                                        niche=niche,
+                                        pincode=pc,
+                                        max_scrolls=max_scrolls,
+                                        on_item_scraped=on_item_scraped,
+                                        should_stop=lambda: stop_scrape_event.is_set(),
+                                        context=context,
+                                        profile_id=profile_id
+                                    )
                                 count = len(df) if df is not None and not df.empty else 0
                                 mark_as_scraped(state, pc, niche, count, profile_id)
                                 query_success = True

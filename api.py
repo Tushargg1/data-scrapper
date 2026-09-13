@@ -826,8 +826,8 @@ SCRAPER_PLATFORMS = [
         "id": "indiamart",
         "name": "IndiaMART",
         "icon": "🏭",
-        "status": "coming_soon",
-        "badge": "Coming Soon",
+        "status": "ready",
+        "badge": "Active Engine",
         "description": "B2B wholesale suppliers, manufacturers, GST numbers & verified seller inquiries."
     },
     {
@@ -842,8 +842,8 @@ SCRAPER_PLATFORMS = [
         "id": "justdial",
         "name": "JustDial",
         "icon": "📞",
-        "status": "coming_soon",
-        "badge": "Coming Soon",
+        "status": "ready",
+        "badge": "Active Engine",
         "description": "Local service listings, verified mobile numbers, ratings & operating hours."
     }
 ]
