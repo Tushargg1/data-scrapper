@@ -763,7 +763,15 @@ def save_single_business(state: str, pincode: str, niche: str,
         clean_target = re.sub(r'[^\w\s\-\.,]', '', clean_target)
         maps_url = f"https://www.google.com/maps/search/?api=1&query={clean_target.replace(' ', '+')}"
 
-    conn, is_mysql = get_connection(use_thread_pool=True)
+    # Auto-pause loop to completely prevent data loss to SQLite
+    while True:
+        conn, is_mysql = get_connection(use_thread_pool=True)
+        if is_mysql or not USE_MYSQL:
+            break
+        print("[DB] Aiven MySQL offline mid-scrape. Waiting 5s before saving...")
+        conn.close()
+        time.sleep(5)
+
     cur = None
     now = datetime.now().isoformat()
     inserted = False

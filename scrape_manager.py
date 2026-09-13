@@ -151,6 +151,24 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
                                 current_scrape_job["done_jobs"] += 1
                             continue
 
+                        # Auto-pause scraper if Aiven MySQL drops
+                        from database import get_connection
+                        while not stop_scrape_event.is_set():
+                            try:
+                                conn, is_mysql = get_connection()
+                                conn.close()
+                                if is_mysql:
+                                    if current_scrape_job.get("status") == "paused_db_offline":
+                                        with scrape_lock:
+                                            current_scrape_job["status"] = "running"
+                                    break
+                            except Exception:
+                                pass
+                            
+                            with scrape_lock:
+                                current_scrape_job["status"] = "paused_db_offline"
+                            time.sleep(5)
+
                         with scrape_lock:
                             current_scrape_job["current_pincode"] = pc
                             current_scrape_job["current_niche"] = niche

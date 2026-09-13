@@ -157,7 +157,7 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
     try {
       const st = await getScrapeStatus();
       setJobStatus(st);
-      if (st.status === "running") {
+      if (st.status === "running" || st.status === "paused_db_offline") {
         if (!pollIntervalRef.current) {
           pollIntervalRef.current = setInterval(fetchStatus, 1500);
         }
@@ -338,7 +338,8 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
     }
   };
 
-  const isRunning = jobStatus?.status === "running";
+  const isRunning = jobStatus?.status === "running" || jobStatus?.status === "paused_db_offline";
+  const isPaused = jobStatus?.status === "paused_db_offline";
   const combinedNiches = getCombinedNiches();
 
   return (
@@ -473,8 +474,8 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   Engine Status:{" "}
-                  <span className={`capitalize font-mono ${isRunning ? "text-emerald-400 font-bold" : "text-slate-400"}`}>
-                    {jobStatus.status === "running" ? "⚡ Actively Scraping Google Maps Live" : jobStatus.status}
+                  <span className={`capitalize font-mono ${isRunning ? (isPaused ? "text-rose-400 font-bold animate-pulse" : "text-emerald-400 font-bold") : "text-slate-400"}`}>
+                    {isPaused ? "⏸ PAUSED: WAITING FOR DATABASE" : (jobStatus.status === "running" ? "⚡ Actively Scraping" : jobStatus.status)}
                   </span>
                 </h3>
                 <p className="text-[11px] text-slate-400 mt-0.5">
