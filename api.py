@@ -834,8 +834,8 @@ SCRAPER_PLATFORMS = [
         "id": "instagram",
         "name": "Instagram Business",
         "icon": "📸",
-        "status": "coming_soon",
-        "badge": "Coming Soon",
+        "status": "ready",
+        "badge": "Active Engine",
         "description": "Creator & business bios, public WhatsApp/call buttons, follower count & location tags."
     },
     {

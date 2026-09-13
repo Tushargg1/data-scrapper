@@ -203,6 +203,13 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
                                         on_item_scraped=on_item_scraped, should_stop=lambda: stop_scrape_event.is_set(),
                                         context=context, profile_id=profile_id
                                     )
+                                elif source == "instagram":
+                                    from instagram_scraper import scrape_instagram
+                                    df = scrape_instagram(
+                                        niche=niche, pincode=pc, max_scrolls=max_scrolls,
+                                        on_item_scraped=on_item_scraped, should_stop=lambda: stop_scrape_event.is_set(),
+                                        context=context, profile_id=profile_id
+                                    )
                                 else:
                                     df = scrape_google_maps(
                                         niche=niche,

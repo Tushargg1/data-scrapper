@@ -33,10 +33,10 @@ const SCRAPER_PLATFORMS = [
     id: "instagram",
     name: "Instagram Business",
     icon: "📸",
-    badge: "Coming Soon",
-    badgeColor: "bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40",
+    badge: "Active",
+    badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
     description: "Creator & business bios, public WhatsApp/call buttons, follower counts & location tags.",
-    status: "coming_soon"
+    status: "ready"
   },
   {
     id: "justdial",
