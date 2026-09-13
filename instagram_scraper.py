@@ -54,9 +54,17 @@ def scrape_instagram(niche: str, pincode: str, max_scrolls: int = 5, on_item_scr
                 if phone_match:
                     phone = phone_match.group(0).strip()
                     
-                # Check for links/contact references in snippet
-                has_contact_link = "linktr.ee" in snippet.lower() or "wa.me" in snippet.lower() or "website" in snippet.lower()
-                website_avail = "Yes" if has_contact_link else "No"
+                # Extract actual website links from snippet (Linktree, WhatsApp, or general domains)
+                bio_link = "N/A"
+                link_match = re.search(r'(?:https?://)?(?:www\.)?(linktr\.ee/[^\s]+|wa\.me/\d+|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?)', snippet, re.IGNORECASE)
+                
+                # Filter out obvious non-bio links like instagram.com itself
+                if link_match and "instagram.com" not in link_match.group(1).lower():
+                    bio_link = link_match.group(1)
+                    if not bio_link.startswith("http"):
+                        bio_link = "https://" + bio_link
+                
+                website_avail = "Yes" if bio_link != "N/A" else "No"
                 
                 # Get the actual IG profile link
                 link_el = res.locator("a").first
@@ -70,8 +78,8 @@ def scrape_instagram(niche: str, pincode: str, max_scrolls: int = 5, on_item_scr
                     "Phone 2": "",
                     "Phone 3": "",
                     "Website Available?": website_avail,
-                    "Website Link": ig_link,
-                    "Google Maps URL": ig_link if ig_link != "N/A" else f"https://instagram.com/dedup/{pincode}/{niche.replace(' ','')}/{i}",
+                    "Website Link": bio_link, # Store the actual business link (linktree/website) here
+                    "Google Maps URL": ig_link if ig_link != "N/A" else f"https://instagram.com/dedup/{pincode}/{niche.replace(' ','')}/{i}", # Store IG profile link here
                     "phone_source": "Instagram Bio"
                 }
                 items.append(item)
