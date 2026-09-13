@@ -103,10 +103,16 @@ export default function Navbar({
           {/* Right Status & Controls */}
           <div className="flex items-center space-x-2.5">
             {/* DB Status Badge */}
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-950 border border-slate-800 text-slate-300">
-              <span className={`h-2 w-2 rounded-full ${apiOnline ? "bg-emerald-400 animate-pulse" : "bg-rose-500"}`}></span>
+            <a 
+              href="https://console.aiven.io/account/a5d5eec48744/project/groomitindia/services/data-extractor/overview"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Click to manage database on Aiven"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-600 transition cursor-pointer"
+            >
+              <span className={`h-2 w-2 rounded-full ${dbEngine === 'mysql' ? "bg-emerald-400 animate-pulse" : "bg-rose-500 animate-pulse"}`}></span>
               <span className="hidden sm:inline">DB:</span> {dbEngine.toUpperCase()}
-            </div>
+            </a>
 
             {/* Refresh Button */}
             <button
