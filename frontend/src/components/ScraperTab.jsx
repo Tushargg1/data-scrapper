@@ -7,7 +7,8 @@ import {
 } from "lucide-react";
 import { 
   getStates, getPincodes, startScraping, getScrapeStatus, stopScraping, 
-  getProfileCoverage, getScrapeSession, resumeScrape 
+  getProfileCoverage, getScrapeSession, resumeScrape,
+  getPincodeStats, rescrapePin 
 } from "../api";
 
 const SCRAPER_PLATFORMS = [
@@ -82,21 +83,57 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
 
   // Coverage tracking
   const [coverage, setCoverage] = useState({ covered_pincodes: [], pincode_niches: {}, pincode_counts: {}, total_jobs: 0 });
+  const [pincodeDetails, setPincodeDetails] = useState(null);
   const [loadingCoverage, setLoadingCoverage] = useState(false);
+  const [rescrapingPin, setRescrapingPin] = useState(null);
+  const [rescrapeMsg, setRescrapeMsg] = useState({});
+  const [expandedStatesInStudio, setExpandedStatesInStudio] = useState({});
 
   const pollIntervalRef = useRef(null);
 
-  // Reload coverage for active profile
+  // Reload coverage & detailed pincode stats for active profile
   const reloadCoverage = async () => {
     if (!activeProfile) return;
     setLoadingCoverage(true);
     try {
-      const data = await getProfileCoverage(activeProfile.slug, activeProfile.api_key);
-      setCoverage(data || { covered_pincodes: [], pincode_niches: {}, pincode_counts: {}, total_jobs: 0 });
+      const [covData, statsData] = await Promise.allSettled([
+        getProfileCoverage(activeProfile.slug, activeProfile.api_key),
+        getPincodeStats(activeProfile.slug, activeProfile.api_key)
+      ]);
+
+      if (covData.status === "fulfilled" && covData.value) {
+        setCoverage(covData.value);
+      }
+      if (statsData.status === "fulfilled" && statsData.value) {
+        setPincodeDetails(statsData.value);
+        // Auto-expand states by default
+        if (statsData.value.states) {
+          const exp = {};
+          Object.keys(statsData.value.states).forEach(s => { exp[s] = true; });
+          setExpandedStatesInStudio(exp);
+        }
+      }
     } catch (err) {
-      console.error("Could not load coverage:", err);
+      console.error("Could not load coverage/stats:", err);
     } finally {
       setLoadingCoverage(false);
+    }
+  };
+
+  const handleRescrapeSinglePin = async (pc) => {
+    if (!activeProfile) return;
+    setRescrapingPin(pc);
+    setRescrapeMsg(prev => ({ ...prev, [pc]: { ok: true, msg: "Initiating..." } }));
+    try {
+      const res = await rescrapePin(activeProfile.slug, activeProfile.api_key, pc, maxScrolls, selectedPlatform);
+      setRescrapeMsg(prev => ({ ...prev, [pc]: { ok: res.success !== false, msg: res.message || "Re-scrape started!" } }));
+      fetchStatus();
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = setInterval(fetchStatus, 1500);
+    } catch (err) {
+      setRescrapeMsg(prev => ({ ...prev, [pc]: { ok: false, msg: err.message || "Failed" } }));
+    } finally {
+      setRescrapingPin(null);
     }
   };
 
@@ -773,72 +810,238 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
           )}
 
           {/* ALL DONE PINCODES SUMMARY CARD (Across this profile) */}
-          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-2">
+          <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-bold text-white">
-                  Completed Pincodes: <strong className="text-emerald-400">{coverage.covered_pincodes?.length || 0} Done</strong>
-                </span>
+              <div className="flex items-center gap-2.5">
+                <div className="w-6 h-6 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-white">
+                    Completed Pincodes: <strong className="text-emerald-400">{coverage.covered_pincodes?.length || 0} Done</strong>
+                  </span>
+                  {pincodeDetails?.total_businesses > 0 && (
+                    <span className="text-[10px] text-slate-400 ml-2">
+                      ({pincodeDetails.total_businesses.toLocaleString()} total businesses saved)
+                    </span>
+                  )}
+                </div>
               </div>
               {coverage.covered_pincodes?.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setShowAllDoneList(!showAllDoneList)}
-                  className="text-[11px] text-emerald-400 hover:underline flex items-center gap-1 font-medium"
+                  className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-semibold px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 transition"
                 >
-                  <span>{showAllDoneList ? "Hide List" : "Show All Done"}</span>
-                  {showAllDoneList ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  <span>{showAllDoneList ? "Collapse Report" : "View Pincode Breakdown"}</span>
+                  {showAllDoneList ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 </button>
               )}
             </div>
 
             {showAllDoneList && coverage.covered_pincodes?.length > 0 && (
-              <div className="pt-2 border-t border-slate-800 space-y-2">
-                <p className="text-[10px] text-slate-400">
-                  All completed pincodes across this profile. Click any to toggle or select for re-scraping:
-                </p>
-                <div className="flex flex-wrap gap-1 max-h-36 overflow-y-auto pr-1">
-                  {coverage.covered_pincodes.map((pc) => {
-                    const cnt = coverage.pincode_counts?.[pc] || 0;
-                    const isSel = selectedPincodes.includes(pc);
-                    return (
-                      <button
-                        key={pc}
-                        type="button"
-                        onClick={() => handleTogglePincode(pc)}
-                        className={`text-[10px] font-mono px-2 py-0.5 rounded border transition flex items-center gap-1 ${
-                          isSel
-                            ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40 font-bold"
-                            : "bg-slate-900 text-emerald-400 border-emerald-500/30 hover:bg-slate-850"
-                        }`}
-                        title={`Pincode ${pc}: ${cnt} leads. Click to toggle selection.`}
-                      >
-                        <span>✓ {pc}</span>
-                        {cnt > 0 && <span className="text-[9px] text-slate-400">({cnt})</span>}
-                      </button>
-                    );
-                  })}
+              <div className="pt-3 border-t border-slate-800 space-y-3">
+                {/* Re-scrape Status Guarantee Notice */}
+                <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/20 text-[11px] text-emerald-300 flex items-start gap-2">
+                  <span className="text-sm">🛡️</span>
+                  <span>
+                    <strong>Status Preservation Guarantee:</strong> Re-scraping any pincode fetches fresh businesses and updates listing data, but <em>never</em> resets existing lead statuses. Any salon already marked as <strong>Sent</strong> will remain <strong>Sent</strong>.
+                  </span>
                 </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+
+                {/* Bulk controls */}
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedPincodes([...coverage.covered_pincodes]);
+                        setScrapeMode("rescrape");
+                      }}
+                      className="text-xs px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/30 transition font-medium"
+                    >
+                      🔁 Select All ({coverage.covered_pincodes.length}) for Re-Scrape
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPincodes([])}
+                      className="text-xs text-slate-400 hover:text-white px-2 py-1"
+                    >
+                      Clear Selection
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedPincodes([...coverage.covered_pincodes]);
-                      setScrapeMode("rescrape");
-                    }}
-                    className="text-cyan-400 hover:underline font-semibold"
+                    onClick={reloadCoverage}
+                    className="text-xs text-slate-400 hover:text-white flex items-center gap-1"
                   >
-                    🔁 Select All Done Pincodes
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPincodes([])}
-                    className="text-slate-400 hover:text-white"
-                  >
-                    Clear Selection
+                    <RefreshCw className="w-3 h-3" /> Refresh Stats
                   </button>
                 </div>
+
+                {/* State-by-State Pincode Cards */}
+                {pincodeDetails?.states && Object.keys(pincodeDetails.states).length > 0 ? (
+                  <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1">
+                    {Object.entries(pincodeDetails.states).map(([stateName, pinList]) => {
+                      const isStateOpen = expandedStatesInStudio[stateName] ?? true;
+                      const stateTotalBiz = pinList.reduce((acc, p) => acc + (p.total || 0), 0);
+                      const stateTotalSent = pinList.reduce((acc, p) => acc + (p.sent_count || 0), 0);
+                      const stateTotalPhone = pinList.reduce((acc, p) => acc + (p.with_phone || 0), 0);
+
+                      return (
+                        <div key={stateName} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                          {/* State Header */}
+                          <div
+                            onClick={() => setExpandedStatesInStudio(prev => ({ ...prev, [stateName]: !isStateOpen }))}
+                            className="w-full flex items-center justify-between p-3 bg-slate-850 hover:bg-slate-800 transition cursor-pointer text-left select-none"
+                          >
+                            <div className="flex items-center gap-2">
+                              {isStateOpen ? <ChevronUp className="w-3.5 h-3.5 text-emerald-400" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}
+                              <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="font-bold text-white text-xs">{stateName}</span>
+                              <span className="text-[10px] text-slate-400 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
+                                {pinList.length} pincodes
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 text-[11px] text-slate-400 font-mono">
+                              <span><strong className="text-white">{stateTotalBiz.toLocaleString()}</strong> leads</span>
+                              <span><strong className="text-emerald-400">{stateTotalPhone.toLocaleString()}</strong> phones</span>
+                              <span><strong className="text-violet-400">{stateTotalSent.toLocaleString()}</strong> sent</span>
+                            </div>
+                          </div>
+
+                          {/* Pincode List inside State */}
+                          {isStateOpen && (
+                            <div className="divide-y divide-slate-800/60 p-2 space-y-2">
+                              {pinList.map((pcItem) => {
+                                const pc = pcItem.pincode;
+                                const isSel = selectedPincodes.includes(pc);
+                                const isReScraping = rescrapingPin === pc;
+                                const singleMsg = rescrapeMsg[pc];
+                                const phonePct = pcItem.total > 0 ? Math.round((pcItem.with_phone / pcItem.total) * 100) : 0;
+                                const sentPct = pcItem.total > 0 ? Math.round((pcItem.sent_count / pcItem.total) * 100) : 0;
+
+                                return (
+                                  <div
+                                    key={pc}
+                                    className={`p-3 rounded-xl border transition space-y-2 ${
+                                      isSel
+                                        ? "bg-cyan-950/20 border-cyan-500/40"
+                                        : "bg-slate-950/60 border-slate-800/80 hover:border-slate-700"
+                                    }`}
+                                  >
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                      {/* Pincode and Selection Checkbox */}
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleTogglePincode(pc)}
+                                          className={`font-mono text-xs font-bold px-2.5 py-1 rounded-lg border transition flex items-center gap-1.5 ${
+                                            isSel
+                                              ? "bg-cyan-500 text-slate-950 border-cyan-400 font-black"
+                                              : "bg-slate-800 text-emerald-400 border-slate-700 hover:border-emerald-500/50"
+                                          }`}
+                                          title="Click to toggle selection for batch re-scraping"
+                                        >
+                                          <span>✓ {pc}</span>
+                                          {isSel && <span className="text-[10px]">Queued</span>}
+                                        </button>
+                                        <span className="text-[10px] text-slate-400">
+                                          {pcItem.last_scraped ? `Scraped: ${new Date(pcItem.last_scraped).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}` : ""}
+                                        </span>
+                                      </div>
+
+                                      {/* Individual Re-Scrape Button */}
+                                      <div className="flex items-center gap-2">
+                                        {singleMsg && (
+                                          <span className={`text-[10px] font-medium ${singleMsg.ok ? "text-emerald-400" : "text-rose-400"}`}>
+                                            {singleMsg.msg}
+                                          </span>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRescrapeSinglePin(pc)}
+                                          disabled={isReScraping}
+                                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition disabled:opacity-50"
+                                          title="Re-scrape only this pincode. Keeps existing Sent statuses intact."
+                                        >
+                                          {isReScraping ? (
+                                            <Loader2 className="w-3 h-3 animate-spin" />
+                                          ) : (
+                                            <RotateCcw className="w-3 h-3" />
+                                          )}
+                                          Re-Scrape
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* Metrics Breakdown Chips */}
+                                    <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                                      <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 font-medium">
+                                        Total: <strong className="text-white">{pcItem.total}</strong>
+                                      </span>
+                                      <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-medium">
+                                        📞 Phones: <strong>{pcItem.with_phone}</strong> ({phonePct}%)
+                                      </span>
+                                      <span className="px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-300 font-medium">
+                                        🌐 Websites: <strong>{pcItem.with_website}</strong>
+                                      </span>
+                                      <span className="px-2 py-0.5 rounded bg-violet-500/10 border border-violet-500/20 text-violet-300 font-medium">
+                                        📤 Sent: <strong>{pcItem.sent_count}</strong> ({sentPct}%)
+                                      </span>
+                                      <span className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300 font-medium">
+                                        📥 Unsent: <strong>{pcItem.unsent_count}</strong>
+                                      </span>
+                                    </div>
+
+                                    {/* Lead Status Breakdown Pills */}
+                                    {pcItem.lead_status_breakdown && Object.keys(pcItem.lead_status_breakdown).length > 0 && (
+                                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                                        <span className="text-[9px] text-slate-500 uppercase font-semibold mr-1">Statuses:</span>
+                                        {Object.entries(pcItem.lead_status_breakdown).map(([status, cnt]) => (
+                                          <span
+                                            key={status}
+                                            className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700/80 text-slate-300"
+                                          >
+                                            {status}: <strong className="text-white">{cnt}</strong>
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* Fallback to compact list if details still loading */
+                  <div className="flex flex-wrap gap-1 max-h-36 overflow-y-auto pr-1">
+                    {coverage.covered_pincodes.map((pc) => {
+                      const cnt = coverage.pincode_counts?.[pc] || 0;
+                      const isSel = selectedPincodes.includes(pc);
+                      return (
+                        <button
+                          key={pc}
+                          type="button"
+                          onClick={() => handleTogglePincode(pc)}
+                          className={`text-[10px] font-mono px-2 py-0.5 rounded border transition flex items-center gap-1 ${
+                            isSel
+                              ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40 font-bold"
+                              : "bg-slate-900 text-emerald-400 border-emerald-500/30 hover:bg-slate-850"
+                          }`}
+                          title={`Pincode ${pc}: ${cnt} leads. Click to toggle selection.`}
+                        >
+                          <span>✓ {pc}</span>
+                          {cnt > 0 && <span className="text-[9px] text-slate-400">({cnt})</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
