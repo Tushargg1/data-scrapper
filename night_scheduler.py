@@ -94,6 +94,17 @@ def _db_keepalive_worker():
         except Exception as e:
             print(f"[DB-KEEPALIVE] Ping error: {e}")
 
+        # Also ping Render public URL to keep edge router active
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                "https://data-scrapper-n7ua.onrender.com/api/info",
+                headers={"User-Agent": "Render-Keepalive/1.0"}
+            )
+            urllib.request.urlopen(req, timeout=10)
+        except Exception:
+            pass
+
         time.sleep(_KEEPALIVE_INTERVAL_SECONDS)
 
 
@@ -109,7 +120,13 @@ def _night_scheduler_worker():
 
                 if in_window:
                     # Inside 12:00 AM - 8:00 AM IST
-                    if not is_enrichment_running():
+                    from scrape_manager import is_scrape_running
+                    if is_scrape_running():
+                        if _auto_started_by_night and is_enrichment_running():
+                            print("[NIGHT-SCHEDULER] Scrape job is active. Pausing night extraction to avoid dual-browser memory spike.")
+                            stop_enrichment()
+                            _auto_started_by_night = False
+                    elif not is_enrichment_running():
                         profiles = get_all_profiles()
                         for p in profiles:
                             pid = p["id"]

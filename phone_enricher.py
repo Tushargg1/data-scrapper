@@ -240,6 +240,14 @@ def run_phone_enrichment(profile_id: int, business_ids: list = None):
                     if _stop_enrich_event.is_set():
                         break
 
+                    try:
+                        from scrape_manager import is_scrape_running
+                        if is_scrape_running():
+                            print("[ENRICH] Scraper has started, yielding enrichment to prioritize scraping.")
+                            break
+                    except Exception:
+                        pass
+
                     biz_id   = biz["id"]
                     biz_name = biz.get("name", "")
                     pincode  = biz.get("pincode", "")

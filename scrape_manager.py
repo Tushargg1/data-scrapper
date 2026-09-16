@@ -41,6 +41,13 @@ current_scrape_job = {
 active_thread = None
 
 
+def is_scrape_running() -> bool:
+    """Check if a scrape job is actively running."""
+    with scrape_lock:
+        return current_scrape_job.get("status") == "running"
+
+
+
 def _launch_browser_and_context(playwright_inst):
     """Launch clean Chromium instance with consent cookies pre-set and rotated user agent."""
     browser = playwright_inst.chromium.launch(
@@ -136,6 +143,7 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser, context = _launch_browser_and_context(p)
+            query_counter = 0
 
             try:
                 for pc in pincodes:
@@ -150,6 +158,24 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
                             with scrape_lock:
                                 current_scrape_job["done_jobs"] += 1
                             continue
+
+                        # Memory recycling: refresh context every 6 queries to release Chromium leak
+                        query_counter += 1
+                        if query_counter % 6 == 0:
+                            try:
+                                context.close()
+                                import gc
+                                gc.collect()
+                                context = browser.new_context(
+                                    viewport={'width': 800, 'height': 600},
+                                    user_agent=get_random_user_agent()
+                                )
+                                context.add_cookies([
+                                    {'name': 'SOCS', 'value': 'CAESHAgBEhJnd3NfMjAyNDA2MTAtMF9SQzIaAmVuIAEaBgiA_L20Bg', 'domain': '.google.com', 'path': '/'},
+                                    {'name': 'CONSENT', 'value': 'PENDING+987', 'domain': '.google.com', 'path': '/'}
+                                ])
+                            except Exception as rec_err:
+                                print(f"[SCRAPER] Context recycling note: {rec_err}")
 
                         # Auto-pause scraper if Aiven MySQL drops
                         from database import get_connection
@@ -312,6 +338,21 @@ def start_scraping(profile_id: int, state: str, pincodes: list, niches: list, ma
         return {"success": False, "message": "At least one pincode is required."}
     if not niches:
         return {"success": False, "message": "At least one niche is required."}
+
+    # Stop phone enrichment if running to avoid dual-Chromium OOM crash on Render (512MB RAM cap)
+    try:
+        from phone_enricher import is_enrichment_running, stop_enrichment
+        if is_enrichment_running():
+            print("[SCRAPER] Phone enrichment is currently running. Pausing it to prioritize scraping...")
+            stop_enrichment()
+            for _ in range(8):
+                if not is_enrichment_running():
+                    break
+                time.sleep(0.5)
+            import gc
+            gc.collect()
+    except Exception as e:
+        print(f"[SCRAPER] Notice stopping enrichment: {e}")
 
     active_thread = threading.Thread(
         target=_run_worker,
