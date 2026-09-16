@@ -1006,7 +1006,7 @@ def api_scrape_sources():
 
 class ScrapeStartRequest(BaseModel):
     profile_id: int = 1
-    state: str
+    state: Optional[str] = "Delhi"
     pincodes: list[str]
     niches: list[str]
     max_scrolls: int = 3
@@ -1022,9 +1022,12 @@ def api_start_scrape(body: ScrapeStartRequest):
     saved instantly into Aiven MySQL database without data loss.
     """
     from scrape_manager import start_scraping
+    st = (body.state or "Delhi").strip()
+    if not st:
+        st = "Delhi"
     res = start_scraping(
         profile_id=body.profile_id,
-        state=body.state.strip(),
+        state=st,
         pincodes=[p.strip() for p in body.pincodes if p.strip()],
         niches=[n.strip() for n in body.niches if n.strip()],
         max_scrolls=body.max_scrolls,

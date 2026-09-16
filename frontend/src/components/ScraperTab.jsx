@@ -314,13 +314,28 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
       setErrorMsg("Please select an active profile in the top navigation bar.");
       return;
     }
-    if (!selectedState) {
-      setErrorMsg("Please select a state to scrape.");
-      return;
-    }
     if (selectedPincodes.length === 0) {
       setErrorMsg("Please select at least one pincode.");
       return;
+    }
+
+    // Auto-resolve state if empty so user is never blocked
+    let stateToUse = selectedState;
+    if (!stateToUse && activeProfile) {
+      if (pincodeDetails?.states) {
+        for (const [st, pList] of Object.entries(pincodeDetails.states)) {
+          if (pList.some(p => selectedPincodes.includes(p.pincode))) {
+            stateToUse = st;
+            break;
+          }
+        }
+      }
+      if (!stateToUse && states.length > 0) {
+        stateToUse = states[0];
+      }
+      if (!stateToUse) {
+        stateToUse = "Delhi";
+      }
     }
 
     const allNiches = getCombinedNiches();
@@ -337,25 +352,45 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
     setErrorMsg("");
     setIsStarting(true);
 
+    // Optimistically update status so user sees instant progress
+    setJobStatus(prev => ({
+      ...(prev || {}),
+      status: "starting",
+      source_name: SCRAPER_PLATFORMS.find(p => p.id === selectedPlatform)?.name || "Google Maps",
+      state: stateToUse,
+      current_pincode: selectedPincodes[0] || "",
+      current_niche: allNiches[0] || "",
+      total_jobs: selectedPincodes.length * allNiches.length,
+      done_jobs: 0,
+      elapsed_seconds: 0
+    }));
+
+    // Start polling immediately
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    pollIntervalRef.current = setInterval(fetchStatus, 1000);
+
     try {
       await startScraping({
         profile_id: activeProfile.id,
-        state: selectedState,
+        state: stateToUse,
         pincodes: selectedPincodes,
         niches: allNiches,
         max_scrolls: Number(maxScrolls),
         rescan_covered: scrapeMode === "rescrape",
         source: selectedPlatform
       });
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = setInterval(fetchStatus, 1200);
       fetchStatus();
     } catch (err) {
       if (err.message && err.message.includes("already running")) {
         setErrorMsg("Connected to active running scrape job.");
         fetchStatus();
       } else {
-        setErrorMsg(err.message || "Failed to start scraper.");
+        setErrorMsg(err.message || "Failed to start scraper. Check backend status.");
+        setJobStatus(prev => ({ ...(prev || {}), status: "idle" }));
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
       }
     } finally {
       setIsStarting(false);
@@ -375,7 +410,8 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
     }
   };
 
-  const isRunning = jobStatus?.status === "running" || jobStatus?.status === "paused_db_offline";
+  const isStartingEngine = isStarting || jobStatus?.status === "starting";
+  const isRunning = jobStatus?.status === "running" || jobStatus?.status === "paused_db_offline" || isStartingEngine;
   const isPaused = jobStatus?.status === "paused_db_offline";
   const combinedNiches = getCombinedNiches();
 
@@ -511,14 +547,28 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   Engine Status:{" "}
-                  <span className={`capitalize font-mono ${isRunning ? (isPaused ? "text-rose-400 font-bold animate-pulse" : "text-emerald-400 font-bold") : "text-slate-400"}`}>
-                    {isPaused ? "⏸ PAUSED: WAITING FOR DATABASE" : (jobStatus.status === "running" ? "⚡ Actively Scraping" : jobStatus.status)}
+                  <span className={`capitalize font-mono ${
+                    isRunning 
+                      ? (isPaused 
+                          ? "text-rose-400 font-bold animate-pulse" 
+                          : isStartingEngine 
+                            ? "text-amber-300 font-bold animate-pulse" 
+                            : "text-emerald-400 font-bold") 
+                      : "text-slate-400"
+                  }`}>
+                    {isPaused 
+                      ? "⏸ PAUSED: WAITING FOR DATABASE" 
+                      : isStartingEngine 
+                        ? "🟡 Launching Cloud Chromium..." 
+                        : (jobStatus.status === "running" ? "⚡ Actively Scraping" : jobStatus.status)}
                   </span>
                 </h3>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  {isRunning
-                    ? `Current Target: "${jobStatus.current_niche}" in Pincode: ${jobStatus.current_pincode} (${jobStatus.state})`
-                    : "Every business is saved instantly to your cloud database with zero data loss."
+                  {isStartingEngine
+                    ? "Connecting to backend and launching headless browser instance..."
+                    : isRunning
+                      ? `Current Target: "${jobStatus.current_niche}" in Pincode: ${jobStatus.current_pincode} (${jobStatus.state})`
+                      : "Every business is saved instantly to your cloud database with zero data loss."
                   }
                 </p>
               </div>
