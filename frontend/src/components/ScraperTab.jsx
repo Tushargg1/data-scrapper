@@ -679,11 +679,11 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
         </div>
       </div>
 
-      {/* Scraper Configuration Form */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Scraper Configuration Form — Stacked Step-by-Step Layout */}
+      <div className="space-y-6">
         
         {/* Step 1: Location & Pincodes */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-md bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-xs font-bold">1</div>
@@ -910,9 +910,9 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
                             </div>
                           </div>
 
-                          {/* Pincode List inside State */}
+                          {/* Pincode List inside State — Responsive Multi-Column Grid */}
                           {isStateOpen && (
-                            <div className="divide-y divide-slate-800/60 p-2 space-y-2">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 p-3">
                               {pinList.map((pcItem) => {
                                 const pc = pcItem.pincode;
                                 const isSel = selectedPincodes.includes(pc);
@@ -924,10 +924,10 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
                                 return (
                                   <div
                                     key={pc}
-                                    className={`p-3 rounded-xl border transition space-y-2 ${
+                                    className={`p-3.5 rounded-xl border transition flex flex-col justify-between space-y-2.5 ${
                                       isSel
-                                        ? "bg-cyan-950/20 border-cyan-500/40"
-                                        : "bg-slate-950/60 border-slate-800/80 hover:border-slate-700"
+                                        ? "bg-cyan-950/25 border-cyan-500/50 shadow-md shadow-cyan-500/5"
+                                        : "bg-slate-950/70 border-slate-800 hover:border-slate-700"
                                     }`}
                                   >
                                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1169,7 +1169,7 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
                   No pincodes match this filter.
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-1.5 max-h-56 overflow-y-auto p-1.5 bg-slate-950 border border-slate-800 rounded-lg">
+                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 max-h-72 overflow-y-auto p-2.5 bg-slate-950 border border-slate-800 rounded-xl">
                   {filteredPincodes.map((pc) => {
                     const isCovered = coverage.covered_pincodes?.includes(pc);
                     const leadCount = coverage.pincode_counts?.[pc] || 0;
@@ -1177,11 +1177,11 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
                     return (
                       <label
                         key={pc}
-                        className={`flex items-center justify-between p-1.5 rounded text-xs cursor-pointer transition border ${
+                        className={`flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition border ${
                           isSelected
                             ? isCovered
-                              ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/40"
-                              : "bg-emerald-500/10 text-emerald-300 border-emerald-500/40"
+                              ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/40 font-bold"
+                              : "bg-emerald-500/10 text-emerald-300 border-emerald-500/40 font-bold"
                             : isCovered
                               ? "bg-emerald-950/20 text-slate-300 border-emerald-500/20 hover:border-emerald-500/40"
                               : "text-slate-400 border-slate-900 hover:bg-slate-900/60"
@@ -1198,7 +1198,7 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
                         </div>
                         {isCovered ? (
                           <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1 py-0.5 rounded border border-emerald-500/30 shrink-0 ml-1">
-                            ✓ {leadCount > 0 ? `${leadCount} leads` : "Done"}
+                            ✓ {leadCount > 0 ? `${leadCount}` : "Done"}
                           </span>
                         ) : (
                           <span className="text-[9px] text-slate-600 shrink-0 ml-1" title="Pending / Unscraped">
@@ -1235,7 +1235,7 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
         </div>
 
         {/* Step 2: Niches Selection & Custom Typing */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 lg:col-span-2">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
           <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
             <div className="w-6 h-6 rounded-md bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-xs font-bold">2</div>
             <h3 className="text-sm font-bold text-white">Target Niches & Categories</h3>
