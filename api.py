@@ -517,6 +517,155 @@ def profile_coverage(slug: str, x_api_key: str = Header(..., alias="X-API-Key"))
     return get_covered_summary(profile_id=profile["id"])
 
 
+@app.get("/api/profiles/{slug}/pincode-stats", tags=["Profile Data"])
+def profile_pincode_stats(slug: str, x_api_key: str = Header(..., alias="X-API-Key")):
+    """
+    Get per-pincode detailed stats: total, phones, websites, sent, unsent, lead status breakdown.
+    Organized by state for the Job Logs view.
+    """
+    profile = require_profile_key(slug, x_api_key)
+    pid = profile["id"]
+    from database import get_connection, execute_db
+    conn, is_mysql = get_connection()
+    try:
+        # Get all businesses grouped by state + pincode
+        cur = execute_db(conn, is_mysql, """
+            SELECT
+                state,
+                pincode,
+                COUNT(*) as total,
+                SUM(CASE WHEN phone IS NOT NULL AND phone != '' AND phone != 'N/A' THEN 1 ELSE 0 END) as with_phone,
+                SUM(CASE WHEN website_available = 'Yes' THEN 1 ELSE 0 END) as with_website,
+                SUM(CASE WHEN is_sent = 1 THEN 1 ELSE 0 END) as sent_count,
+                SUM(CASE WHEN is_sent = 0 OR is_sent IS NULL THEN 1 ELSE 0 END) as unsent_count,
+                MAX(scraped_at) as last_scraped
+            FROM businesses
+            WHERE profile_id = ?
+            GROUP BY state, pincode
+            ORDER BY state ASC, pincode ASC
+        """, (pid,))
+        rows = [dict(r) for r in cur.fetchall()]
+
+        # Get lead status breakdown per pincode
+        cur2 = execute_db(conn, is_mysql, """
+            SELECT pincode, lead_status, COUNT(*) as cnt
+            FROM businesses
+            WHERE profile_id = ?
+            GROUP BY pincode, lead_status
+        """, (pid,))
+        lead_status_map = {}
+        for r in cur2.fetchall():
+            d = dict(r)
+            pc = str(d["pincode"])
+            if pc not in lead_status_map:
+                lead_status_map[pc] = {}
+            lead_status_map[pc][d["lead_status"]] = d["cnt"]
+
+        # Get scraped niches per pincode from scraped_jobs
+        cur3 = execute_db(conn, is_mysql, """
+            SELECT pincode, GROUP_CONCAT(DISTINCT niche SEPARATOR '|||') as niches
+            FROM scraped_jobs
+            WHERE profile_id = ?
+            GROUP BY pincode
+        """, (pid,)) if is_mysql else execute_db(conn, is_mysql, """
+            SELECT pincode, GROUP_CONCAT(niche, '|||') as niches
+            FROM scraped_jobs
+            WHERE profile_id = ?
+            GROUP BY pincode
+        """, (pid,))
+        niches_map = {}
+        for r in cur3.fetchall():
+            d = dict(r)
+            pc = str(d["pincode"])
+            raw = d.get("niches") or ""
+            niches_map[pc] = list(set([n.strip() for n in raw.split("|||") if n.strip()]))
+
+        # Attach extras and group by state
+        state_groups = {}
+        for row in rows:
+            pc = str(row["pincode"])
+            state = row["state"] or "Unknown"
+            row["lead_status_breakdown"] = lead_status_map.get(pc, {})
+            row["scraped_niches"] = niches_map.get(pc, [])
+            row["pincode"] = pc
+            if state not in state_groups:
+                state_groups[state] = []
+            state_groups[state].append(row)
+
+        return {
+            "profile": profile["name"],
+            "states": state_groups,
+            "total_pincodes": len(rows),
+            "total_businesses": sum(r["total"] for r in rows)
+        }
+    finally:
+        conn.close()
+
+
+class RescrapeRequest(BaseModel):
+    pincode: str
+    niches: list[str] = None  # if None, re-scrape all niches for that pincode
+    max_scrolls: int = 3
+    source: str = "google_maps"
+
+
+@app.post("/api/profiles/{slug}/rescrape-pincode", tags=["Profile Data"])
+def rescrape_pincode(slug: str, body: RescrapeRequest,
+                     x_api_key: str = Header(..., alias="X-API-Key")):
+    """
+    Re-scrape a single pincode without touching existing is_sent flags or lead statuses.
+    New businesses will be added; existing ones (matched by maps_url) will be UPDATED
+    only for scraped data fields but NOT for is_sent, sent_at, lead_status.
+    """
+    profile = require_profile_key(slug, x_api_key)
+    pid = profile["id"]
+
+    from database import get_connection, execute_db
+    conn, is_mysql = get_connection()
+    niches_to_scrape = body.niches
+    state = None
+    try:
+        # Get state for this pincode
+        cur = execute_db(conn, is_mysql,
+            "SELECT DISTINCT state FROM businesses WHERE profile_id=? AND pincode=? LIMIT 1",
+            (pid, body.pincode))
+        row = cur.fetchone()
+        if row:
+            state = dict(row).get("state", "Delhi")
+        if not state:
+            # Try scraped_jobs
+            cur2 = execute_db(conn, is_mysql,
+                "SELECT DISTINCT state FROM scraped_jobs WHERE profile_id=? AND pincode=? LIMIT 1",
+                (pid, body.pincode))
+            row2 = cur2.fetchone()
+            if row2:
+                state = dict(row2).get("state", "Delhi")
+        if not state:
+            state = "Delhi"
+
+        if not niches_to_scrape:
+            # Get all niches previously scraped for this pincode
+            cur3 = execute_db(conn, is_mysql,
+                "SELECT DISTINCT niche FROM scraped_jobs WHERE profile_id=? AND pincode=?",
+                (pid, body.pincode))
+            niches_to_scrape = [dict(r)["niche"] for r in cur3.fetchall()]
+        if not niches_to_scrape:
+            return {"success": False, "message": "No niches found for this pincode. Select niches manually."}
+    finally:
+        conn.close()
+
+    from scrape_manager import start_scraping
+    result = start_scraping(
+        profile_id=pid,
+        state=state,
+        pincodes=[body.pincode],
+        niches=niches_to_scrape,
+        max_scrolls=body.max_scrolls,
+        rescan_covered=True,  # Force re-scrape even if already done
+        source=body.source
+    )
+    return result
+
 
 # PHONE ENRICHMENT  (per-profile key or admin key)
 # ════════════════════════════════════════════════════════════════════════════

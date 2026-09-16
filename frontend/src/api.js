@@ -270,6 +270,20 @@ export async function getProfileCoverage(slug, apiKey) {
   });
 }
 
+export async function getPincodeStats(slug, apiKey) {
+  return request(`/api/profiles/${slug}/pincode-stats`, {
+    headers: { "X-API-Key": apiKey || ADMIN_API_KEY }
+  });
+}
+
+export async function rescrapePin(slug, apiKey, pincode, maxScrolls = 3, source = "google_maps") {
+  return request(`/api/profiles/${slug}/rescrape-pincode`, {
+    method: "POST",
+    headers: { "X-API-Key": apiKey || ADMIN_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ pincode, max_scrolls: maxScrolls, source })
+  });
+}
+
 export function getExportCsvUrl(slug, apiKey, state, pincode, niche, isSent = null) {
   const base = getApiBaseUrl();
   const query = new URLSearchParams();
