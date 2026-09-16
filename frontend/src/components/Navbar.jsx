@@ -45,13 +45,8 @@ export default function Navbar({
               <Zap className="h-5 w-5 text-slate-950 font-bold" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-base tracking-tight text-white">Biz Scraper Pro</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono font-semibold">
-                  React 19
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400 -mt-0.5">Google Maps Multi-Profile Lead Engine</p>
+              <span className="font-extrabold text-base tracking-tight text-white">Scraper Pro</span>
+              <p className="text-[11px] text-slate-500 -mt-0.5">B2B Lead Intelligence Platform</p>
             </div>
           </div>
 

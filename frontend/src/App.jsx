@@ -291,7 +291,7 @@ export default function App() {
           {loading && !stats ? (
             <div className="py-24 text-center text-slate-400 text-xs">
               <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-emerald-400" />
-              Connecting to Aiven MySQL Cloud database...
+              Connecting to database...
             </div>
           ) : (
             <>
@@ -341,8 +341,8 @@ export default function App() {
 
 
       {/* Global Footer */}
-      <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-500">
-        <p>India Biz Scraper Pro • React 19 + Vite Frontend on Vercel • Playwright + FastAPI Backend on Render • Aiven MySQL</p>
+      <footer className="border-t border-slate-900 bg-slate-950 py-4 text-center text-[11px] text-slate-600">
+        <p>Scraper Pro &copy; {new Date().getFullYear()} — All rights reserved</p>
       </footer>
 
     </div>

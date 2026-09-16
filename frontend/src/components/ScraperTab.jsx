@@ -479,9 +479,9 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
                   </span>
                 </h3>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  {isRunning 
+                  {isRunning
                     ? `Current Target: "${jobStatus.current_niche}" in Pincode: ${jobStatus.current_pincode} (${jobStatus.state})`
-                    : "Zero-data-loss active: Every business is instantly committed to Aiven MySQL."
+                    : "Every business is saved instantly to your cloud database with zero data loss."
                   }
                 </p>
               </div>
@@ -1115,7 +1115,7 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
             </div>
 
             <div className="text-[11px] text-slate-400">
-              ⚡ Results are saved to Aiven MySQL per business with zero data loss.
+              ⚡ Results are saved to your cloud database per business with zero data loss.
             </div>
           </div>
 
