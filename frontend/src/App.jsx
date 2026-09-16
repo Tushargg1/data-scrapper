@@ -296,14 +296,30 @@ export default function App() {
               </div>
             ) : (
               <>
-                {activeTab === "dashboard" && <DashboardTab key={tabRefreshKey} stats={stats} activeProfile={activeProfile} onNavigateTab={handleTabChange} />}
-                {activeTab === "scrape"    && <ScraperTab   key={tabRefreshKey} activeProfile={activeProfile} onDataChanged={refreshAll} onNavigateTab={handleTabChange} />}
-                {activeTab === "profiles"  && <ProfilesTab  key={tabRefreshKey} profiles={profiles} onProfileCreated={handleProfileCreated} onProfileDeleted={handleProfileDeleted} />}
-                {activeTab === "leads"     && <LeadsTab      key={tabRefreshKey} activeProfile={activeProfile} />}
-                {activeTab === "users"     && <UsersTab      key={tabRefreshKey} />}
-                {activeTab === "data"      && <DataTab       key={tabRefreshKey} activeProfile={activeProfile} onDataChanged={refreshAll} />}
-                {activeTab === "jobs"      && <JobsTab       key={tabRefreshKey} activeProfile={activeProfile} />}
-                {activeTab === "api_docs"  && <ApiDocsTab    key={tabRefreshKey} activeProfile={activeProfile} />}
+                <div className={activeTab === "dashboard" ? "contents" : "hidden"}>
+                  <DashboardTab stats={stats} activeProfile={activeProfile} onNavigateTab={handleTabChange} />
+                </div>
+                <div className={activeTab === "scrape" ? "contents" : "hidden"}>
+                  <ScraperTab activeProfile={activeProfile} onDataChanged={refreshAll} onNavigateTab={handleTabChange} />
+                </div>
+                <div className={activeTab === "profiles" ? "contents" : "hidden"}>
+                  <ProfilesTab profiles={profiles} onProfileCreated={handleProfileCreated} onProfileDeleted={handleProfileDeleted} />
+                </div>
+                <div className={activeTab === "leads" ? "contents" : "hidden"}>
+                  <LeadsTab activeProfile={activeProfile} />
+                </div>
+                <div className={activeTab === "users" ? "contents" : "hidden"}>
+                  <UsersTab />
+                </div>
+                <div className={activeTab === "data" ? "contents" : "hidden"}>
+                  <DataTab activeProfile={activeProfile} onDataChanged={refreshAll} />
+                </div>
+                <div className={activeTab === "jobs" ? "contents" : "hidden"}>
+                  <JobsTab activeProfile={activeProfile} />
+                </div>
+                <div className={activeTab === "api_docs" ? "contents" : "hidden"}>
+                  <ApiDocsTab activeProfile={activeProfile} />
+                </div>
               </>
             )}
           </TabErrorBoundary>

@@ -8,7 +8,45 @@ import { getBusinesses, getExportCsvUrl, getStates, getPincodes,
          startPhoneEnrichment, getEnrichmentStatus, stopEnrichment,
          clearProfileData } from "../api";
 
-const PAGE_SIZE = 150;
+const PAGE_SIZE = 50;
+
+// Cache utilities for instant local session loading without hitting DB
+const getCacheKey = (slug, state, pincode, delivery) => 
+  `data_cache_${slug || "def"}_${state || "all"}_${pincode || "all"}_${delivery || "all"}`;
+
+const getCachedData = (key) => {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const setCachedData = (key, data) => {
+  try {
+    const safeData = {
+      ...data,
+      businesses: (data.businesses || []).slice(0, 300) // cache up to 300 records locally
+    };
+    sessionStorage.setItem(key, JSON.stringify(safeData));
+  } catch {
+    // quota exceeded or private mode, safely ignore
+  }
+};
+
+const clearSessionCache = () => {
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith("data_cache_")) {
+        keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach(k => sessionStorage.removeItem(k));
+  } catch {}
+};
 
 export default function DataTab({ activeProfile, onDataChanged }) {
   const [businesses, setBusinesses] = useState([]);
@@ -38,8 +76,24 @@ export default function DataTab({ activeProfile, onDataChanged }) {
   const enrichPollRef = useRef(null);
   const wasEnrichRunningRef = useRef(false);
 
-  const fetchRecords = async (pageNum = 1, isInitial = false) => {
+  const fetchRecords = async (pageNum = 1, isInitial = false, forceRefresh = false) => {
     if (!activeProfile || isFetchingRef.current) return;
+    const cacheKey = getCacheKey(activeProfile.slug, selectedState, selectedPincode, deliveryFilter);
+
+    // If initial load and not forcing server refresh, check local session cache first!
+    if (isInitial && !forceRefresh) {
+      const cached = getCachedData(cacheKey);
+      if (cached && Array.isArray(cached.businesses) && cached.businesses.length > 0) {
+        setBusinesses(cached.businesses);
+        setTotalRecords(cached.totalRecords || cached.businesses.length);
+        setHasMore(cached.hasMore ?? false);
+        setPage(cached.page || 1);
+        setLoading(false);
+        setLoadingMore(false);
+        return; // Loaded instantly from local browser session! Zero DB hit.
+      }
+    }
+
     isFetchingRef.current = true;
     if (isInitial) {
       setLoading(true);
@@ -70,11 +124,14 @@ export default function DataTab({ activeProfile, onDataChanged }) {
         setBusinesses(incoming);
         setPage(1);
         setHasMore(serverHasMore);
+        setCachedData(cacheKey, { businesses: incoming, totalRecords: totalCount, hasMore: serverHasMore, page: 1 });
       } else {
         setBusinesses((prev) => {
           const seen = new Set(prev.map((b) => b.id));
           const newItems = incoming.filter((b) => !seen.has(b.id));
-          return [...prev, ...newItems];
+          const merged = [...prev, ...newItems];
+          setCachedData(cacheKey, { businesses: merged, totalRecords: totalCount, hasMore: serverHasMore, page: pageNum });
+          return merged;
         });
         setPage(pageNum);
         setHasMore(serverHasMore);
@@ -245,8 +302,9 @@ export default function DataTab({ activeProfile, onDataChanged }) {
 
     setClearingData(true);
     try {
+      clearSessionCache();
       await clearProfileData(activeProfile.slug, activeProfile.api_key, enteredPassword.trim());
-      await fetchRecords(1, true);
+      await fetchRecords(1, true, true);
       if (onDataChanged) onDataChanged();
       alert("✅ All data wiped successfully. You can now start fresh extraction!");
     } catch (err) {
@@ -513,7 +571,7 @@ export default function DataTab({ activeProfile, onDataChanged }) {
           {" · "}
           <span className="text-emerald-400">{filtered.filter(b => b.is_sent).length} sent</span>
         </span>
-        <button onClick={() => fetchRecords(1, true)} className="hover:text-white flex items-center gap-1 transition">
+        <button onClick={() => fetchRecords(1, true, true)} className="hover:text-white flex items-center gap-1 transition">
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
         </button>
       </div>
