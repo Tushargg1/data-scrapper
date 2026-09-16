@@ -23,6 +23,12 @@ _scheduler_enabled = True
 _last_auto_run_time = None
 _auto_started_by_night = False
 
+# Keepalive tracking
+_keepalive_thread = None
+_keepalive_lock = threading.Lock()
+_last_keepalive_time = None
+_KEEPALIVE_INTERVAL_SECONDS = 300  # Ping every 5 minutes
+
 
 def get_ist_now() -> datetime:
     """Current time in Indian Standard Time (IST)."""
@@ -51,6 +57,7 @@ def get_night_scheduler_status() -> dict:
         "enrichment_status": get_enrich_status(),
         "last_auto_run": _last_auto_run_time,
         "auto_started_by_night": _auto_started_by_night,
+        "last_db_keepalive": _last_keepalive_time,
     }
 
 
@@ -58,6 +65,36 @@ def set_night_scheduler_enabled(enabled: bool) -> dict:
     global _scheduler_enabled
     _scheduler_enabled = enabled
     return get_night_scheduler_status()
+
+
+def _db_keepalive_worker():
+    """
+    Background thread that pings the Aiven MySQL database every 5 minutes
+    with a lightweight SELECT 1 query to prevent it from powering off due
+    to inactivity (Aiven free-tier auto-pauses after ~15 min idle).
+    """
+    global _last_keepalive_time
+    print("[DB-KEEPALIVE] Database keepalive thread started. Pinging every 5 minutes.")
+
+    while True:
+        try:
+            from database import get_connection
+            conn, is_mysql = get_connection()
+            if is_mysql:
+                cur = conn.cursor()
+                cur.execute("SELECT 1")
+                cur.fetchone()
+                conn.close()
+                now_str = get_ist_now().strftime("%Y-%m-%d %I:%M:%S %p IST")
+                _last_keepalive_time = now_str
+                print(f"[DB-KEEPALIVE] Pinged Aiven MySQL at {now_str} — connection healthy.")
+            else:
+                conn.close()
+                print("[DB-KEEPALIVE] MySQL not reachable, currently on SQLite. Will retry in 5 min.")
+        except Exception as e:
+            print(f"[DB-KEEPALIVE] Ping error: {e}")
+
+        time.sleep(_KEEPALIVE_INTERVAL_SECONDS)
 
 
 def _night_scheduler_worker():
@@ -103,9 +140,14 @@ def _night_scheduler_worker():
 
 
 def start_night_scheduler():
-    """Start the background daemon thread if not already running."""
-    global _scheduler_thread
+    """Start the background daemon threads if not already running."""
+    global _scheduler_thread, _keepalive_thread
     with _scheduler_lock:
         if _scheduler_thread is None or not _scheduler_thread.is_alive():
             _scheduler_thread = threading.Thread(target=_night_scheduler_worker, daemon=True)
             _scheduler_thread.start()
+
+    with _keepalive_lock:
+        if _keepalive_thread is None or not _keepalive_thread.is_alive():
+            _keepalive_thread = threading.Thread(target=_db_keepalive_worker, daemon=True)
+            _keepalive_thread.start()
