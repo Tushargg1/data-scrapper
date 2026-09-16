@@ -142,7 +142,7 @@ export default function App() {
   if (!authToken) return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex">
+    <div className="w-full min-h-screen bg-slate-950 text-slate-100 flex">
 
       {/* ════════════════════════════════════════════
           LEFT SIDEBAR
@@ -247,10 +247,10 @@ export default function App() {
       {/* ════════════════════════════════════════════
           MAIN CONTENT
       ════════════════════════════════════════════ */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 w-full">
 
         {/* Top bar — minimal, just title + API key */}
-        <header className="h-14 border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-30 flex items-center justify-between px-6">
+        <header className="h-14 border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-30 flex items-center justify-between px-6 w-full">
           <div className="flex items-center gap-3">
             <span className="text-sm font-bold text-white">
               {TABS.find(t => t.id === activeTab)?.label || "Dashboard"}
@@ -274,7 +274,7 @@ export default function App() {
 
         {/* Connection error banner */}
         {!apiOnline && connError && (
-          <div className="bg-rose-500/10 border-b border-rose-500/20 px-6 py-2.5 text-xs text-rose-300 flex items-center justify-between">
+          <div className="bg-rose-500/10 border-b border-rose-500/20 px-6 py-2.5 text-xs text-rose-300 flex items-center justify-between w-full">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
               <span>{connError}</span>
@@ -287,7 +287,7 @@ export default function App() {
         )}
 
         {/* Tab Content */}
-        <main className="flex-1 p-6 overflow-y-auto">
+        <main className="flex-1 p-6 sm:p-8 overflow-y-auto w-full">
           <TabErrorBoundary>
             {loading && !stats ? (
               <div className="py-24 text-center text-slate-400 text-xs">
