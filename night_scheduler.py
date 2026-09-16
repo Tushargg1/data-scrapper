@@ -94,17 +94,6 @@ def _db_keepalive_worker():
         except Exception as e:
             print(f"[DB-KEEPALIVE] Ping error: {e}")
 
-        # Also ping Render public URL to keep edge router active
-        try:
-            import urllib.request
-            req = urllib.request.Request(
-                "https://data-scrapper-n7ua.onrender.com/api/info",
-                headers={"User-Agent": "Render-Keepalive/1.0"}
-            )
-            urllib.request.urlopen(req, timeout=10)
-        except Exception:
-            pass
-
         time.sleep(_KEEPALIVE_INTERVAL_SECONDS)
 
 

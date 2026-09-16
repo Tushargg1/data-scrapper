@@ -572,6 +572,29 @@ def is_already_scraped(pincode: str, niche: str, profile_id: int = 1) -> bool:
         conn.close()
 
 
+def get_covered_pincode_niches(profile_id: int = 1) -> set:
+    """Return a set of (pincode, niche) tuples that have already been scraped for this profile in a single fast query."""
+    conn, is_mysql = get_connection()
+    try:
+        cur = conn.cursor()
+        if is_mysql:
+            cur.execute("SELECT DISTINCT pincode, niche FROM businesses WHERE profile_id = %s", (profile_id,))
+            rows = cur.fetchall()
+            covered = {(r['pincode'], r['niche']) for r in rows if r.get('pincode') and r.get('niche')}
+            cur.execute("SELECT DISTINCT pincode, niche FROM scraped_jobs WHERE profile_id = %s", (profile_id,))
+            rows2 = cur.fetchall()
+            covered.update((r['pincode'], r['niche']) for r in rows2 if r.get('pincode') and r.get('niche'))
+        else:
+            cur.execute("SELECT DISTINCT pincode, niche FROM businesses WHERE profile_id = ?", (profile_id,))
+            covered = {(r[0], r[1]) for r in cur.fetchall() if r[0] and r[1]}
+            cur.execute("SELECT DISTINCT pincode, niche FROM scraped_jobs WHERE profile_id = ?", (profile_id,))
+            covered.update((r[0], r[1]) for r in cur.fetchall() if r[0] and r[1])
+        return covered
+    finally:
+        conn.close()
+
+
+
 def get_covered_summary(profile_id: int = 1) -> dict:
     """Return map of {pincode: [niches...]}, list of covered pincodes, and business counts for a profile."""
     conn, is_mysql = get_connection()

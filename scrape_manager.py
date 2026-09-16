@@ -145,6 +145,16 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
             browser, context = _launch_browser_and_context(p)
             query_counter = 0
 
+            # Batch load all covered (pincode, niche) pairs in 1 fast query instead of 700+ slow connections
+            covered_set = set()
+            if not rescan_covered:
+                try:
+                    from database import get_covered_pincode_niches
+                    covered_set = get_covered_pincode_niches(profile_id)
+                    print(f"[SCRAPER] Loaded {len(covered_set)} covered jobs in batch. Skipping them instantly...")
+                except Exception as c_err:
+                    print(f"[SCRAPER] Error loading covered set: {c_err}")
+
             try:
                 for pc in pincodes:
                     if stop_scrape_event.is_set():
@@ -153,8 +163,8 @@ def _run_worker(profile_id: int, state: str, pincodes: list, niches: list, max_s
                         if stop_scrape_event.is_set():
                             break
 
-                        # If already scraped and user chose not to re-scrape, skip and continue
-                        if not rescan_covered and is_already_scraped(pc, niche, profile_id):
+                        # If already scraped and user chose not to re-scrape, skip instantly in memory
+                        if not rescan_covered and (pc, niche) in covered_set:
                             with scrape_lock:
                                 current_scrape_job["done_jobs"] += 1
                             continue
