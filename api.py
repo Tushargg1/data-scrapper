@@ -77,20 +77,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 init_db()
 
-import threading
-from scraper import ensure_playwright_installed
-
-def _warmup():
-    try:
-        ensure_playwright_installed()
-    except Exception as e:
-        print(f"[STARTUP] Playwright warmup error: {e}")
-
-# Only run Playwright browser warmup when serving live web traffic (uvicorn)
-if os.getenv("VERCEL") != "1" and ("uvicorn" in sys.argv[0] or any("uvicorn" in m for m in sys.modules)):
-    threading.Thread(target=_warmup, daemon=True).start()
-
-# Launch Night Phone Extraction Scheduler (12:00 AM - 8:00 AM IST)
+# Launch Night Phone Extraction Scheduler (12:00 AM - 8:00 AM IST, defaults to idle)
 start_night_scheduler()
 
 

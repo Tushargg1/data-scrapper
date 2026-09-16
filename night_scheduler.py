@@ -19,7 +19,7 @@ IST_TIMEZONE = timezone(timedelta(hours=5, minutes=30))
 
 _scheduler_thread = None
 _scheduler_lock = threading.Lock()
-_scheduler_enabled = True
+_scheduler_enabled = False
 _last_auto_run_time = None
 _auto_started_by_night = False
 

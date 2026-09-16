@@ -349,18 +349,11 @@ def start_scraping(profile_id: int, state: str, pincodes: list, niches: list, ma
     if not niches:
         return {"success": False, "message": "At least one niche is required."}
 
-    # Stop phone enrichment if running to avoid dual-Chromium OOM crash on Render (512MB RAM cap)
+    # Signal phone enrichment to stop if running so it yields cleanly to scraping
     try:
         from phone_enricher import is_enrichment_running, stop_enrichment
         if is_enrichment_running():
-            print("[SCRAPER] Phone enrichment is currently running. Pausing it to prioritize scraping...")
             stop_enrichment()
-            for _ in range(8):
-                if not is_enrichment_running():
-                    break
-                time.sleep(0.5)
-            import gc
-            gc.collect()
     except Exception as e:
         print(f"[SCRAPER] Notice stopping enrichment: {e}")
 
