@@ -222,7 +222,7 @@ export default function ScraperTab({ activeProfile, onDataChanged, onNavigateTab
   };
 
   useEffect(() => {
-    pollIntervalRef.current = setInterval(fetchStatus, 2000);
+    fetchStatus();
     checkSavedSession();
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
