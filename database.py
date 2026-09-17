@@ -1056,7 +1056,7 @@ def get_businesses(profile_id: int = 1, state: str = None, pincode: str = None,
                 query += " AND (is_sent = 0 OR is_sent IS NULL)"
 
         offset = max(0, (page - 1) * limit)
-        query += " ORDER BY scraped_at DESC LIMIT ? OFFSET ?"
+        query += " ORDER BY CASE WHEN lead_status != '🆕 New Lead' THEN 1 ELSE 2 END ASC, updated_at DESC, scraped_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
         cur = execute_db(conn, is_mysql, query, params)
