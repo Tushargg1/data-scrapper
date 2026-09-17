@@ -213,8 +213,8 @@ export default function App() {
             target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:border-slate-600 transition text-xs text-slate-400 hover:text-slate-300"
           >
-            <span className="w-2 h-2 rounded-full shrink-0 bg-blue-400 animate-pulse" />
-            <span>Server: <strong className="text-blue-400">RENDER</strong></span>
+            <span className={`w-2 h-2 rounded-full shrink-0 ${apiOnline ? "bg-emerald-400 animate-pulse" : "bg-rose-500 animate-pulse"}`} />
+            <span>Server: <strong className={apiOnline ? "text-emerald-400" : "text-rose-400"}>RENDER</strong></span>
             <ExternalLink className="w-3 h-3 ml-auto" />
           </a>
           <a
