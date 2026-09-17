@@ -206,8 +206,17 @@ export default function App() {
           })}
         </nav>
 
-        {/* DB Status */}
-        <div className="px-4 py-3 border-t border-slate-800">
+        {/* Backend & DB Status */}
+        <div className="px-4 py-3 border-t border-slate-800 space-y-2">
+          <a
+            href="https://dashboard.render.com/web/srv-dafqh9ou01pc73bifgj0"
+            target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:border-slate-600 transition text-xs text-slate-400 hover:text-slate-300"
+          >
+            <span className="w-2 h-2 rounded-full shrink-0 bg-blue-400 animate-pulse" />
+            <span>Server: <strong className="text-blue-400">RENDER</strong></span>
+            <ExternalLink className="w-3 h-3 ml-auto" />
+          </a>
           <a
             href="https://console.aiven.io/account/a5d5eec48744/project/groomitindia/services/data-extractor/overview"
             target="_blank" rel="noopener noreferrer"
