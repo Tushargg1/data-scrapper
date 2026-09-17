@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { 
   Search, Filter, Phone, Globe, Star, MapPin, 
-  CheckCircle, MessageSquare, ExternalLink, Loader2, Edit3, CheckSquare, Square
+  CheckCircle, MessageSquare, ExternalLink, Loader2, Edit3, CheckSquare, Square, RefreshCw
 } from "lucide-react";
 import { getBusinesses, updateLeadStatus, bulkUpdateLeadStatus } from "../api";
 
@@ -166,9 +166,20 @@ export default function LeadsTab({ activeProfile }) {
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <span>👤</span> Leads CRM & Outreach Management
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <span>👤</span> Leads CRM & Outreach Management
+              </h2>
+              <button 
+                onClick={fetchLeads} 
+                disabled={loading}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition flex items-center gap-1.5 text-xs shadow-sm"
+                title="Refresh leads data"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
+                <span className="font-medium">Refresh</span>
+              </button>
+            </div>
             <p className="text-xs text-slate-400 mt-1">
               Track outreach progress, phone numbers, and communication notes in real time.
             </p>
@@ -324,9 +335,9 @@ export default function LeadsTab({ activeProfile }) {
                             {b.name}
                           </span>
                           {(b.is_sent || b.lead_status === "📤 Sent") && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 font-bold text-[10px]">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 font-bold text-[10px]" title={b.sent_at ? new Date(b.sent_at).toLocaleString() : ''}>
                               <CheckCircle className="w-3 h-3 text-emerald-400" />
-                              <span>Sent {b.sent_to_user_code ? `(${b.sent_to_user_code})` : ''}</span>
+                              <span>Sent {b.sent_at ? new Date(b.sent_at).toLocaleDateString('en-US', {month: 'short', day: 'numeric'}) : ''} {b.sent_to_user_code ? `(${b.sent_to_user_code})` : ''}</span>
                             </span>
                           )}
                         </div>
