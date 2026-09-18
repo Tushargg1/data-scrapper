@@ -896,7 +896,7 @@ def update_lead_status(business_id: int, status: str, notes: str = None):
     conn, is_mysql = get_connection()
     try:
         now = datetime.now().isoformat()
-        is_sent_val = 1 if "sent" in status.lower() else (0 if status == "🆕 New Lead" else None)
+        is_sent_val = 0 if status == "🆕 New Lead" else 1
         if notes is not None:
             if is_sent_val is not None:
                 execute_db(conn, is_mysql,
@@ -931,7 +931,7 @@ def bulk_update_lead_status(business_ids: list, status: str, notes: str = None) 
     conn, is_mysql = get_connection()
     try:
         now = datetime.now().isoformat()
-        is_sent_val = 1 if "sent" in status.lower() else (0 if status == "🆕 New Lead" else None)
+        is_sent_val = 0 if status == "🆕 New Lead" else 1
 
         set_clauses = ["lead_status=?"]
         params = [status]

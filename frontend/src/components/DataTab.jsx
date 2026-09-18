@@ -159,13 +159,14 @@ export default function DataTab({ activeProfile, onDataChanged }) {
     if (!activeProfile) return;
     try {
       await updateLeadStatus(activeProfile.slug, bizId, newStatus, currentNotes, activeProfile.api_key);
+      const isSentVal = newStatus === "🆕 New Lead" ? 0 : 1;
       setBusinesses((prev) =>
-        prev.map((b) => (b.id === bizId ? { ...b, lead_status: newStatus } : b))
+        prev.map((b) => (b.id === bizId ? { ...b, lead_status: newStatus, is_sent: isSentVal } : b))
       );
-      const cacheKey = getCacheKey(activeProfile.slug, selectedState, selectedPincode, selectedDelivery);
+      const cacheKey = getCacheKey(activeProfile.slug, selectedState, selectedPincode, deliveryFilter);
       const cached = getCachedData(cacheKey);
       if (cached && cached.businesses) {
-        cached.businesses = cached.businesses.map(b => b.id === bizId ? { ...b, lead_status: newStatus } : b);
+        cached.businesses = cached.businesses.map(b => b.id === bizId ? { ...b, lead_status: newStatus, is_sent: isSentVal } : b);
         setCachedData(cacheKey, cached);
       }
     } catch (err) {
