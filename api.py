@@ -896,6 +896,9 @@ def api_get_batch_data(
             item["extraction_message"] = ""
             item["message"] = ""
 
+        # Prefix ID to prevent overlapping with old deduplication logic in the Java client's DB
+        item["id"] = f"v2-{item['id']}"
+
         formatted_businesses.append(item)
 
     return {
