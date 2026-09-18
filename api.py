@@ -33,7 +33,7 @@ from database import (
     get_all_businesses_df, get_stats, get_scraped_jobs_df,
     get_distinct_states, get_distinct_niches,
     register_api_user, get_user_by_code, get_all_api_users,
-    update_user_status, get_and_mark_unsent_batch, get_batch_delivery_stats,
+    update_user_status, get_and_mark_unsent_batch, get_batch_delivery_stats, get_delivery_history,
     get_businesses_without_phone, clear_all_data, get_covered_summary,
     count_businesses,
     verify_admin_login, create_admin_token, verify_admin_token
@@ -946,6 +946,13 @@ def admin_update_user_status(user_code: str, body: UserStatusUpdateRequest):
 def admin_delivery_stats():
     """Get lead delivery and inventory stats."""
     return get_batch_delivery_stats()
+
+
+@app.get("/api/admin/delivery-history", tags=["User Access (Admin)"], dependencies=[Depends(require_admin)])
+def admin_delivery_history(limit: int = Query(1000)):
+    """Get detailed log of all leads delivered to users."""
+    history = get_delivery_history(limit=limit)
+    return {"total": len(history), "history": history}
 
 
 # ════════════════════════════════════════════════════════════════════════════

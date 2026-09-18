@@ -239,6 +239,13 @@ export async function updateUserStatus(userCode, status) {
   });
 }
 
+export async function getDeliveryHistory(limit = 1000) {
+  const res = await request(`/api/admin/delivery-history?limit=${limit}`, {
+    headers: { "X-API-Key": ADMIN_API_KEY }
+  });
+  return res.history || [];
+}
+
 export async function registerUser(data) {
   return request("/api/users/register", {
     method: "POST",

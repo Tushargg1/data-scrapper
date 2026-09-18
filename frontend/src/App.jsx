@@ -7,13 +7,14 @@ import UsersTab from "./components/UsersTab";
 import DataTab from "./components/DataTab";
 import JobsTab from "./components/JobsTab";
 import ApiDocsTab from "./components/ApiDocsTab";
+import DeliveryHistoryTab from "./components/DeliveryHistoryTab";
 import LoginScreen from "./components/LoginScreen";
 
 import {
   LayoutDashboard, Play, FolderKanban, Users,
   Database, History, BookOpen, AlertTriangle, Loader2,
   Zap, Settings, RefreshCw, LogOut, UserCheck, ChevronDown,
-  ExternalLink
+  ExternalLink, Send
 } from "lucide-react";
 import { getProfiles, getRootInfo, getGlobalStats, getProfileStats, verifyAdminToken } from "./api";
 import { getApiBaseUrl, setApiBaseUrl } from "./config";
@@ -26,6 +27,7 @@ const TABS = [
   { id: "jobs",       label: "Coverage Tracker",icon: History },
   { id: "profiles",   label: "Profiles",        icon: FolderKanban },
   { id: "users",      label: "User Approvals",  icon: UserCheck },
+  { id: "history",    label: "Delivery History",icon: Send },
   { id: "api_docs",   label: "API Docs",        icon: BookOpen },
 ];
 
@@ -319,6 +321,9 @@ export default function App() {
                 </div>
                 <div className={activeTab === "users" ? "contents" : "hidden"}>
                   <UsersTab />
+                </div>
+                <div className={activeTab === "history" ? "contents" : "hidden"}>
+                  <DeliveryHistoryTab />
                 </div>
                 <div className={activeTab === "data" ? "contents" : "hidden"}>
                   <DataTab activeProfile={activeProfile} onDataChanged={refreshAll} />

@@ -1421,6 +1421,32 @@ def clear_all_data(profile_id: int = None) -> bool:
         conn.close()
 
 
+def get_delivery_history(limit: int = 1000) -> list:
+    conn, is_mysql = get_connection()
+    try:
+        query = """
+            SELECT 
+                sh.id as history_id,
+                sh.sent_at,
+                u.username,
+                u.phone_number,
+                sh.user_code,
+                b.name as business_name,
+                b.phone as business_phone,
+                b.niche
+            FROM sent_history sh
+            LEFT JOIN users u ON sh.user_code = u.user_code
+            LEFT JOIN businesses b ON sh.business_id = b.id
+            ORDER BY sh.sent_at DESC
+            LIMIT ?
+        """
+        cur = execute_db(conn, is_mysql, query, [limit])
+        rows = cur.fetchall()
+        return [dict(r) for r in rows] if rows else []
+    finally:
+        conn.close()
+
+
 # ── Admin User & Authentication Helpers ──────────────────────────────────────
 
 def hash_admin_password(password: str, salt: str) -> str:
