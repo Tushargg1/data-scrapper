@@ -6,9 +6,19 @@ import {
 } from "lucide-react";
 import { getBusinesses, getExportCsvUrl, getStates, getPincodes,
          startPhoneEnrichment, getEnrichmentStatus, stopEnrichment,
-         clearProfileData } from "../api";
+         clearProfileData, updateLeadStatus } from "../api";
 
 const PAGE_SIZE = 50;
+
+const LEAD_STATUS_OPTIONS = [
+  "🆕 New Lead",
+  "📤 Sent",
+  "📞 Contacted",
+  "💬 In Discussion",
+  "🤝 Closed / Won",
+  "❌ Not Interested",
+  "🚫 Invalid Number"
+];
 
 // Cache utilities for instant local session loading without hitting DB
 const getCacheKey = (slug, state, pincode, delivery) => 
@@ -142,6 +152,24 @@ export default function DataTab({ activeProfile, onDataChanged }) {
       isFetchingRef.current = false;
       setLoading(false);
       setLoadingMore(false);
+    }
+  };
+
+  const handleStatusChange = async (bizId, newStatus, currentNotes) => {
+    if (!activeProfile) return;
+    try {
+      await updateLeadStatus(activeProfile.slug, bizId, newStatus, currentNotes, activeProfile.api_key);
+      setBusinesses((prev) =>
+        prev.map((b) => (b.id === bizId ? { ...b, lead_status: newStatus } : b))
+      );
+      const cacheKey = getCacheKey(activeProfile.slug, selectedState, selectedPincode, selectedDelivery);
+      const cached = getCachedData(cacheKey);
+      if (cached && cached.businesses) {
+        cached.businesses = cached.businesses.map(b => b.id === bizId ? { ...b, lead_status: newStatus } : b);
+        setCachedData(cacheKey, cached);
+      }
+    } catch (err) {
+      alert("Failed to update status: " + err.message);
     }
   };
 
@@ -651,7 +679,7 @@ export default function DataTab({ activeProfile, onDataChanged }) {
                   <tbody className="divide-y divide-slate-800/60 text-slate-300">
                     {/* UNSENT ROWS — top, white background */}
                     {unsent.map((b) => (
-                      <BusinessRow key={b.id} b={b} copiedId={copiedId} onCopy={handleCopyMap} />
+                      <BusinessRow key={b.id} b={b} copiedId={copiedId} onCopy={handleCopyMap} onStatusChange={handleStatusChange} />
                     ))}
                     {/* Divider between unsent and sent */}
                     {unsent.length > 0 && sent.length > 0 && (
@@ -663,7 +691,7 @@ export default function DataTab({ activeProfile, onDataChanged }) {
                     )}
                     {/* SENT ROWS — bottom, green tinted */}
                     {sent.map((b) => (
-                      <BusinessRow key={b.id} b={b} copiedId={copiedId} onCopy={handleCopyMap} />
+                      <BusinessRow key={b.id} b={b} copiedId={copiedId} onCopy={handleCopyMap} onStatusChange={handleStatusChange} />
                     ))}
                   </tbody>
                 </table>
@@ -706,7 +734,20 @@ export default function DataTab({ activeProfile, onDataChanged }) {
 }
 
 
-function BusinessRow({ b, copiedId, onCopy }) {
+function BusinessRow({ b, copiedId, onCopy, onStatusChange }) {
+  const [currentStatus, setCurrentStatus] = useState(b.lead_status || "🆕 New Lead");
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const handleStatusChange = async (e) => {
+    const newStatus = e.target.value;
+    setCurrentStatus(newStatus);
+    setIsUpdating(true);
+    if (onStatusChange) {
+      await onStatusChange(b.id, newStatus, b.notes || "");
+    }
+    setIsUpdating(false);
+  };
+
   return (
     <tr
       className={`transition ${
@@ -716,25 +757,38 @@ function BusinessRow({ b, copiedId, onCopy }) {
       }`}
     >
       <td className="p-3 whitespace-nowrap">
-        {b.is_sent ? (
-          <span
-            title={b.sent_to_user_code ? `Delivered to ${b.sent_to_user_code}` : "Delivered"}
-            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 font-bold text-[10px]"
+        <div className="flex flex-col gap-2 items-start">
+          {b.is_sent ? (
+            <span
+              title={b.sent_to_user_code ? `Delivered to ${b.sent_to_user_code}` : "Delivered"}
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 font-bold text-[10px]"
+            >
+              <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+              <span>Sent</span>
+              {b.sent_to_user_code && (
+                <span className="text-[9px] font-mono text-emerald-300/80 bg-emerald-900/60 px-1 py-0.5 rounded">
+                  {b.sent_to_user_code}
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 text-[10px]">
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+              <span>Unsent</span>
+            </span>
+          )}
+          
+          <select
+            value={currentStatus}
+            onChange={handleStatusChange}
+            disabled={isUpdating}
+            className="text-[10px] bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-slate-300 outline-none focus:border-emerald-500"
           >
-            <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-            <span>Sent</span>
-            {b.sent_to_user_code && (
-              <span className="text-[9px] font-mono text-emerald-300/80 bg-emerald-900/60 px-1 py-0.5 rounded">
-                {b.sent_to_user_code}
-              </span>
-            )}
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 text-[10px]">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-            <span>Unsent</span>
-          </span>
-        )}
+            {LEAD_STATUS_OPTIONS.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </div>
       </td>
       <td className={`p-3 font-bold max-w-[200px] truncate ${b.is_sent ? "text-emerald-200" : "text-white"}`}>{b.name}</td>
       <td className="p-3">
